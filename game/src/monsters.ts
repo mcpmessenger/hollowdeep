@@ -15,6 +15,7 @@ export interface Monster {
   pos: Cell;
   sprite: THREE.Sprite;
   attackCooldown: number;
+  windup: number; // ticks remaining before a telegraphed bite lands (0 = none)
   alive: boolean;
 }
 
@@ -49,15 +50,17 @@ export function spawnGibberlings(
     sprite.scale.set(1.6, 1.6, 1);
     sprite.position.set(pos.x * CELL, 1.1, pos.y * CELL);
     scene.add(sprite);
+    const mhp = 3 + ((Math.random() * 4) | 0); // 3–6: fights aren't all one-shots
     out.push({
       id: nextId++,
       kind: 'gibberling',
       name: 'Gibberling',
-      hp: 3,
-      maxHp: 3,
+      hp: mhp,
+      maxHp: mhp,
       pos: { ...pos },
       sprite,
       attackCooldown: 0,
+      windup: 0,
       alive: true,
     });
   }
@@ -83,13 +86,24 @@ export function monsterTick(m: Monster, d: Dungeon, player: Cell, occupied: Set<
   const dist = Math.abs(m.pos.x - player.x) + Math.abs(m.pos.y - player.y);
 
   if (dist === 1) {
-    // Adjacent: attack.
+    // Adjacent: telegraphed bite. Wind up one tick (eyes flare, growl),
+    // then bite on the next tick if the player is still there.
+    if (m.windup > 0) {
+      m.windup = 0;
+      if (m.attackCooldown === 0) {
+        m.attackCooldown = 3; // ~1.65s between bites
+        events.push('hit:1');
+      }
+      return events;
+    }
     if (m.attackCooldown === 0) {
-      m.attackCooldown = 2;
-      events.push('hit:1');
+      m.windup = 1;
+      events.push('windup');
     }
     return events;
   }
+  // Lost the player mid-windup — it fizzles.
+  m.windup = 0;
 
   let step: Cell | null = null;
   if (dist <= 6) {

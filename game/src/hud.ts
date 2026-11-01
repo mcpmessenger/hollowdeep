@@ -80,8 +80,21 @@ export class HUD {
     this.hitEl.style.transition = 'none';
     this.hitEl.style.opacity = '1';
     void this.hitEl.offsetWidth;
-    this.hitEl.style.transition = 'opacity 0.18s ease-out';
+    this.hitEl.style.transition = 'opacity 0.35s ease-out';
     this.hitEl.style.opacity = '0';
+  }
+
+  /** Floating damage number — pops near center-top, drifts up and fades. */
+  damageNumber(n: number, color = '#ffd76a') {
+    const el = document.createElement('div');
+    el.textContent = `${n}`;
+    el.style.cssText = `position:fixed;left:50%;top:38%;transform:translate(-50%,0);color:${color};font-size:34px;font-weight:bold;letter-spacing:2px;z-index:16;pointer-events:none;opacity:1;text-shadow:0 0 12px rgba(0,0,0,0.9);transition:transform 0.7s ease-out, opacity 0.7s ease-out;`;
+    document.body.appendChild(el);
+    requestAnimationFrame(() => {
+      el.style.transform = 'translate(-50%,-70px)';
+      el.style.opacity = '0';
+    });
+    setTimeout(() => el.remove(), 750);
   }
 
   drawMinimap(d: Dungeon, px: number, py: number, dir: number, monsters: Monster[]) {

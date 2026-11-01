@@ -304,10 +304,11 @@ export class Game {
   private attack(m: Monster) {
     const dmg = 2 + ((Math.random() * 3) | 0); // 2–4
     m.hp -= dmg;
-    // Hit feedback: flash + shake + flinch pop.
+    // Hit feedback: flash + shake + flinch pop + damage number.
     this.audio.hitFlesh();
     this.hud.hitFlash();
-    this.renderer.addShake(0.12);
+    this.hud.damageNumber(dmg);
+    this.renderer.addShake(0.18);
     // Knockback flash: scale pop.
     m.sprite.scale.set(2.0, 2.0, 1);
     setTimeout(() => m.sprite.scale.set(1.6, 1.6, 1), 120);
@@ -414,7 +415,15 @@ export class Game {
         for (const m of this.monsters) {
           const events = monsterTick(m, this.d, { x: this.px, y: this.py }, this.occupied);
           for (const e of events) {
-            if (e === 'hit:1') {
+            if (e === 'windup') {
+              // Telegraph: eyes flare (scale pop) + warning growl. Dodge by moving.
+              m.sprite.scale.set(2.1, 2.1, 1);
+              setTimeout(() => {
+                if (m.alive) m.sprite.scale.set(1.6, 1.6, 1);
+              }, 400);
+              this.audio.growl(0.9);
+              this.hud.log('The Gibberling rears back, eyes blazing — move!');
+            } else if (e === 'hit:1') {
               this.hp -= 1;
               this.hud.setHp(this.hp, this.maxHp);
               this.hud.log('A Gibberling bites you! -1 HP.');

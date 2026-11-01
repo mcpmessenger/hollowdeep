@@ -106,6 +106,22 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
     contents.set(key(c.x, c.y), roll < 0.28 ? 'gold' : roll < 0.48 ? 'trap' : roll < 0.68 ? 'lore' : roll < 0.85 ? 'bandage' : null);
   }
 
+  // Guarantee early loot: the two nearest dead-ends to spawn always hold
+  // something good, so the first searches teach reward before a trap punishes.
+  const isDeadEnd = (x: number, y: number) => {
+    if (grid[y][x] !== FLOOR) return false;
+    let open = 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
+      if (grid[y + dy] && grid[y + dy][x + dx] !== WALL) open++;
+    return open === 1;
+  };
+  const nearDeadEnds = floorCells
+    .filter((c) => isDeadEnd(c.x, c.y))
+    .map((c) => ({ c, d: Math.abs(c.x - start.x) + Math.abs(c.y - start.y) }))
+    .sort((a, b) => a.d - b.d);
+  if (nearDeadEnds[0]) contents.set(key(nearDeadEnds[0].c.x, nearDeadEnds[0].c.y), 'gold');
+  if (nearDeadEnds[1]) contents.set(key(nearDeadEnds[1].c.x, nearDeadEnds[1].c.y), 'bandage');
+
   return { size, grid, start, exit, contents, searched: new Set(), level };
 }
 
