@@ -49,7 +49,9 @@ export class DungeonRenderer {
   build(d: Dungeon) {
     for (const m of this.wallMeshes) {
       this.scene.remove(m);
-      m.geometry.dispose();
+      // Lights have no geometry — guard the dispose.
+      const g = (m as THREE.Mesh).geometry;
+      if (g) g.dispose();
     }
     this.wallMeshes = [];
 
@@ -100,7 +102,7 @@ export class DungeonRenderer {
     const exitMat = new THREE.MeshBasicMaterial({
       color: 0x6ab8ff,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.55,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
@@ -110,7 +112,7 @@ export class DungeonRenderer {
     this.wallMeshes.push(this.exitMarker);
 
     // Cold blue glow so the exit reads through fog at distance.
-    const exitLight = new THREE.PointLight(0x6ab8ff, 20, 14, 1.8);
+    const exitLight = new THREE.PointLight(0x6ab8ff, 28, 20, 1.8);
     exitLight.position.set(d.exit.x * CELL, 2.5, d.exit.y * CELL);
     this.scene.add(exitLight);
     this.wallMeshes.push(exitLight as unknown as THREE.Mesh);
