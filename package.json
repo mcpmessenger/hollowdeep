@@ -1,0 +1,10 @@
+{
+  "name": "hollowdeep",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix game run dev",
+    "build": "npm --prefix game run build",
+    "preview": "npm --prefix game run preview"
+  }
+}
