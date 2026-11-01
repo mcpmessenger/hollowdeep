@@ -129,6 +129,62 @@ export class GameAudio {
     this.noise(1.0, 800, 'lowpass', 0.3, 0.2, 100);
   }
 
+  /** Wordless breathy whisper — the labyrinth breathing near the exit shaft.
+   *  intensity 1 = faint (tier 1), 2 = close (tier 2). No words: shaped noise
+   *  through voice-like formant bands, drifting around the listener's head. */
+  whisper(intensity = 1) {
+    if (!this.ready) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const dur = 3.0;
+    const peak = 0.1 * Math.min(2.2, Math.max(0.5, intensity));
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+
+    const wgain = ctx.createGain();
+    wgain.gain.setValueAtTime(0.0001, t);
+    wgain.gain.linearRampToValueAtTime(peak, t + 0.9);
+    wgain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+
+    // Breathiness: slow tremolo on the whisper gain.
+    const trem = ctx.createOscillator();
+    trem.frequency.value = 4.2 + Math.random();
+    const tremG = ctx.createGain();
+    tremG.gain.value = peak * 0.45;
+    trem.connect(tremG).connect(wgain.gain);
+
+    // Drift around the head.
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 2 - 1;
+    const panLfo = ctx.createOscillator();
+    panLfo.frequency.value = 0.33;
+    const panG = ctx.createGain();
+    panG.gain.value = 0.65;
+    panLfo.connect(panG).connect(pan.pan);
+
+    // Two formant-ish bands: a voice with no words.
+    for (const [freq, q, g] of [[1050, 1.4, 1.0], [2500, 2.2, 0.45]] as const) {
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = freq;
+      bp.Q.value = q;
+      const gg = ctx.createGain();
+      gg.gain.value = g;
+      src.connect(bp).connect(gg).connect(wgain);
+    }
+
+    wgain.connect(pan).connect(this.master!);
+    src.start(t);
+    trem.start(t);
+    panLfo.start(t);
+    const stopAt = t + dur + 0.1;
+    src.stop(stopAt);
+    trem.stop(stopAt);
+    panLfo.stop(stopAt);
+  }
+
   startAmbient() {
     if (!this.ready || this.ambientNodes.length) return;
     const ctx = this.ctx!;

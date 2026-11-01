@@ -206,7 +206,8 @@ export class Game {
     }
   }
 
-  /** Hot/cold exit sense: tiered whispers as the player nears the shaft. */
+  /** Hot/cold exit sense: tiered whispers as the player nears the shaft.
+   *  Text in the log + an audible breathy whisper (no words), louder when close. */
   private exitWhisper() {
     const dist =
       Math.abs(this.px - this.d.exit.x) + Math.abs(this.py - this.d.exit.y);
@@ -214,9 +215,11 @@ export class Game {
     if (dist <= 4 && this.exitHintTier < 2) {
       this.exitHintTier = 2;
       this.hud.log('Cold blue light bleeds through the cracks. Close now.');
+      this.audio.whisper(2);
     } else if (dist <= 9 && this.exitHintTier < 1) {
       this.exitHintTier = 1;
       this.hud.log('The air turns cold. Something blue breathes nearby.');
+      this.audio.whisper(1);
     }
   }
 
