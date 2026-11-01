@@ -67,11 +67,22 @@ export class Game {
     });
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
 
-    document.getElementById('title')!.addEventListener('click', () => {
-      document.getElementById('title')!.style.display = 'none';
+    const titleEl = document.getElementById('title')!;
+    const dismissTitle = () => {
+      if (this.started) return;
+      titleEl.style.display = 'none';
       this.started = true;
       this.hud.log('You descend into the Hollowdeep.');
       this.hud.log('Find the shaft of blue light. Go down.');
+    };
+    titleEl.addEventListener('click', dismissTitle);
+    // Keyboard users: Enter or Space on the focused title starts the game.
+    titleEl.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation(); // don't let the game-input handler also see this key
+        dismissTitle();
+      }
     });
 
     // Autotest hook: #autotest runs a scripted playthrough for headless verification.
