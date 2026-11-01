@@ -27,31 +27,44 @@ export interface Monster {
 
 let nextId = 1;
 const texCache: Partial<Record<MonsterKind, THREE.CanvasTexture>> = {};
+// Live materials per kind — when an AI sprite PNG arrives, their maps upgrade.
+const spriteMats: Array<{ kind: MonsterKind; mat: THREE.SpriteMaterial }> = [];
 
 function textureFor(kind: MonsterKind): THREE.CanvasTexture {
   if (!texCache[kind]) {
-    // Procedural placeholder shows instantly; the AI sprite swaps in when loaded.
+    // Procedural placeholder shows instantly; the AI sprite upgrades it on arrival.
     const t = new THREE.CanvasTexture(
       kind === 'wraith' ? wraithSprite() : kind === 'chad' ? chadSprite() : gibberlingSprite()
     );
     t.colorSpace = THREE.SRGBColorSpace;
     texCache[kind] = t;
-    new THREE.TextureLoader().load(
-      new URL(`sprites/${kind}.png`, document.baseURI).toString(),
-      (loaded) => {
-        const target = texCache[kind];
-        if (!target) return;
-        target.image = loaded.image;
-        target.needsUpdate = true;
-      },
-      undefined,
-      () => {
-        /* AI sprite failed — the procedural one stays. */
-      }
-    );
   }
   return texCache[kind]!;
 }
+
+/** Swap every live material of this kind to the AI sprite. Future spawns use it directly. */
+function upgradeKind(kind: MonsterKind, img: HTMLImageElement) {
+  const t = new THREE.CanvasTexture(img);
+  t.colorSpace = THREE.SRGBColorSpace;
+  texCache[kind] = t;
+  for (const s of spriteMats) {
+    if (s.kind === kind) s.mat.map = t;
+  }
+}
+
+/** Call when a level is torn down — all its materials are disposed. */
+export function resetSpriteRegistry() {
+  spriteMats.length = 0;
+}
+
+// Preload AI sprites at module load (page boot, before the title is dismissed).
+// Procedural placeholders cover the gap; failures keep them permanently.
+(['gibberling', 'wraith', 'chad'] as MonsterKind[]).forEach((kind) => {
+  const img = new Image();
+  img.onload = () => upgradeKind(kind, img);
+  img.onerror = () => console.warn(`[sprites] ${kind}.png failed to load — keeping procedural`);
+  img.src = new URL(`sprites/${kind}.png`, document.baseURI).toString();
+});
 
 interface KindSpec {
   hp: [number, number];
@@ -99,6 +112,7 @@ function spawnKind(
       transparent: true,
       depthWrite: false,
     });
+    spriteMats.push({ kind, mat });
     const sprite = new THREE.Sprite(mat);
     sprite.scale.set(spec.scale, spec.scale, 1);
     sprite.position.set(pos.x * CELL, spec.y, pos.y * CELL);

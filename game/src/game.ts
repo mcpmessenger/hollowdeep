@@ -11,7 +11,7 @@ import {
   CellContent,
   EXIT,
 } from './dungeon';
-import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster } from './monsters';
+import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster, resetSpriteRegistry } from './monsters';
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio } from './audio';
 
@@ -205,6 +205,7 @@ export class Game {
     this.graceUntil = performance.now() + 3000;
     this.occupied.clear();
     for (const m of this.monsters) killMonster(this.renderer.scene, m);
+    resetSpriteRegistry(); // all level materials disposed above
     this.monsters = spawnMonsters(this.renderer.scene, d, [d.start]);
     for (const m of this.monsters) this.occupied.add(`${m.pos.x},${m.pos.y}`);
     this.renderer.build(d);
