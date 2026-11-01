@@ -30,11 +30,25 @@ const texCache: Partial<Record<MonsterKind, THREE.CanvasTexture>> = {};
 
 function textureFor(kind: MonsterKind): THREE.CanvasTexture {
   if (!texCache[kind]) {
-    const c =
-      kind === 'wraith' ? wraithSprite() : kind === 'chad' ? chadSprite() : gibberlingSprite();
-    const t = new THREE.CanvasTexture(c);
+    // Procedural placeholder shows instantly; the AI sprite swaps in when loaded.
+    const t = new THREE.CanvasTexture(
+      kind === 'wraith' ? wraithSprite() : kind === 'chad' ? chadSprite() : gibberlingSprite()
+    );
     t.colorSpace = THREE.SRGBColorSpace;
     texCache[kind] = t;
+    new THREE.TextureLoader().load(
+      new URL(`sprites/${kind}.png`, document.baseURI).toString(),
+      (loaded) => {
+        const target = texCache[kind];
+        if (!target) return;
+        target.image = loaded.image;
+        target.needsUpdate = true;
+      },
+      undefined,
+      () => {
+        /* AI sprite failed — the procedural one stays. */
+      }
+    );
   }
   return texCache[kind]!;
 }
