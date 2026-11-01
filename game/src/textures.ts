@@ -122,18 +122,30 @@ export function gibberlingSprite(): HTMLCanvasElement {
     ctx.lineTo(S / 2 + Math.cos(a) * r2, S / 2 + Math.sin(a) * r2);
     ctx.stroke();
   }
-  // eyes — too many
+  // eyes — too many, and they glow. Red reads in the dark; amber didn't.
+  const eyePos: Array<[number, number]> = [];
   const eyes = 5 + ((Math.random() * 3) | 0);
   for (let i = 0; i < eyes; i++) {
-    const ex = S / 2 + (Math.random() - 0.5) * S * 0.5;
-    const ey = S / 2 + (Math.random() - 0.5) * S * 0.4;
-    ctx.fillStyle = '#c8a03a';
+    eyePos.push([
+      S / 2 + (Math.random() - 0.5) * S * 0.5,
+      S / 2 + (Math.random() - 0.5) * S * 0.4,
+    ]);
+  }
+  ctx.save();
+  ctx.shadowColor = '#ff2a1a';
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = '#ff3b28';
+  for (const [ex, ey] of eyePos) {
     ctx.beginPath();
-    ctx.arc(ex, ey, 5, 0, 7);
+    ctx.arc(ex, ey, 6, 0, 7);
     ctx.fill();
-    ctx.fillStyle = '#000';
+  }
+  ctx.restore();
+  // crisp dark pupils on top
+  ctx.fillStyle = '#1a0505';
+  for (const [ex, ey] of eyePos) {
     ctx.beginPath();
-    ctx.arc(ex, ey, 2.2, 0, 7);
+    ctx.arc(ex, ey, 2.4, 0, 7);
     ctx.fill();
   }
   // teeth

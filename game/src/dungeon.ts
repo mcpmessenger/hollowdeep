@@ -10,7 +10,7 @@ export interface Cell {
   y: number;
 }
 
-export type CellContent = 'gold' | 'trap' | 'lore' | null;
+export type CellContent = 'gold' | 'trap' | 'lore' | 'bandage' | null;
 
 export interface Dungeon {
   size: number;
@@ -103,7 +103,7 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
   for (let i = 0; i < count; i++) {
     const c = floorCells.splice((Math.random() * floorCells.length) | 0, 1)[0];
     const roll = Math.random();
-    contents.set(key(c.x, c.y), roll < 0.4 ? 'gold' : roll < 0.65 ? 'trap' : 'lore');
+    contents.set(key(c.x, c.y), roll < 0.28 ? 'gold' : roll < 0.48 ? 'trap' : roll < 0.68 ? 'lore' : roll < 0.85 ? 'bandage' : null);
   }
 
   return { size, grid, start, exit, contents, searched: new Set(), level };

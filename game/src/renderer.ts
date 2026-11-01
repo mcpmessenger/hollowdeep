@@ -16,6 +16,14 @@ export class DungeonRenderer {
   private exitMarker!: THREE.Mesh;
   private textures: TextureSet;
   private flicker = 0;
+  private shakeAmt = 0;
+  private lastShakeX = 0;
+  private lastShakeY = 0;
+
+  /** Screen shake — call on hits/bites. Decays automatically, leaves no drift. */
+  addShake(n: number) {
+    this.shakeAmt = Math.min(0.5, this.shakeAmt + n);
+  }
 
   constructor(container: HTMLElement) {
     this.scene = new THREE.Scene();
@@ -140,6 +148,20 @@ export class DungeonRenderer {
     const f = Math.sin(this.flicker * 11) * 0.5 + Math.sin(this.flicker * 23 + 1.7) * 0.3;
     this.torch.intensity = 30 + f * 5;
     if (this.exitMarker) this.exitMarker.rotation.y += dt * 0.6;
+    // Screen shake: remove last frame's offset, apply a fresh decaying one.
+    this.camera.position.x -= this.lastShakeX;
+    this.camera.position.y -= this.lastShakeY;
+    this.lastShakeX = 0;
+    this.lastShakeY = 0;
+    if (this.shakeAmt > 0.004) {
+      this.lastShakeX = (Math.random() - 0.5) * this.shakeAmt;
+      this.lastShakeY = (Math.random() - 0.5) * this.shakeAmt * 0.6;
+      this.camera.position.x += this.lastShakeX;
+      this.camera.position.y += this.lastShakeY;
+      this.shakeAmt *= Math.pow(0.02, dt); // fast decay
+    } else {
+      this.shakeAmt = 0;
+    }
   }
 
   render() {

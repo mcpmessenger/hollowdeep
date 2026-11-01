@@ -10,6 +10,28 @@ export class HUD {
   private map: HTMLCanvasElement = document.getElementById('minimap') as HTMLCanvasElement;
   private mctx = this.map.getContext('2d')!;
   private centerTimer: number | null = null;
+  private dmgEl: HTMLElement;
+  private hitEl: HTMLElement;
+  private goldEl: HTMLElement;
+
+  constructor() {
+    // Directional damage vignette (red edge flash).
+    this.dmgEl = document.createElement('div');
+    this.dmgEl.style.cssText =
+      'position:fixed;inset:0;pointer-events:none;z-index:15;opacity:0;transition:opacity 0.45s ease-out;';
+    document.body.appendChild(this.dmgEl);
+    // Hit-confirm flash (white, subtle).
+    this.hitEl = document.createElement('div');
+    this.hitEl.style.cssText =
+      'position:fixed;inset:0;pointer-events:none;z-index:15;opacity:0;transition:opacity 0.18s ease-out;background:radial-gradient(ellipse at center, rgba(255,240,210,0.28) 0%, rgba(255,240,210,0) 60%);';
+    document.body.appendChild(this.hitEl);
+    // Live coin counter.
+    this.goldEl = document.createElement('div');
+    this.goldEl.style.cssText =
+      'position:fixed;top:34px;left:14px;color:#c8a03a;font-size:13px;letter-spacing:2px;z-index:10;opacity:0.9;';
+    this.goldEl.textContent = '◈ 0';
+    document.body.appendChild(this.goldEl);
+  }
 
   log(msg: string) {
     const div = document.createElement('div');
@@ -28,6 +50,38 @@ export class HUD {
 
   setHp(hp: number, max: number) {
     this.hpBar.style.width = `${Math.max(0, (hp / max) * 100)}%`;
+  }
+
+  setGold(n: number) {
+    this.goldEl.textContent = `◈ ${n}`;
+  }
+
+  /** Red edge flash from the direction damage came from (relative to facing). */
+  damageFlash(from: 'front' | 'left' | 'right' | 'back') {
+    const edge =
+      from === 'front'
+        ? 'inset 0 120px 90px -60px'
+        : from === 'back'
+          ? 'inset 0 -120px 90px -60px'
+          : from === 'left'
+            ? 'inset 120px 0 60px -60px'
+            : 'inset -120px 0 60px -60px';
+    this.dmgEl.style.boxShadow = `${edge} rgba(200, 20, 10, 0.85)`;
+    this.dmgEl.style.transition = 'none';
+    this.dmgEl.style.opacity = '1';
+    // force reflow so the fade-out transition applies
+    void this.dmgEl.offsetWidth;
+    this.dmgEl.style.transition = 'opacity 0.45s ease-out';
+    this.dmgEl.style.opacity = '0';
+  }
+
+  /** Subtle white flash confirming the player's hit landed. */
+  hitFlash() {
+    this.hitEl.style.transition = 'none';
+    this.hitEl.style.opacity = '1';
+    void this.hitEl.offsetWidth;
+    this.hitEl.style.transition = 'opacity 0.18s ease-out';
+    this.hitEl.style.opacity = '0';
   }
 
   drawMinimap(d: Dungeon, px: number, py: number, dir: number, monsters: Monster[]) {

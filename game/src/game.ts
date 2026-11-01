@@ -13,6 +13,7 @@ import {
 } from './dungeon';
 import { Monster, spawnGibberlings, monsterTick, killMonster } from './monsters';
 import { HUD, visited, markVisited } from './hud';
+import { GameAudio } from './audio';
 
 const LORE = [
   'Scratched into the wall: "THE MAPS WERE RIGHT. THE DUNGEON CHEATS." — S.V.',
@@ -53,6 +54,9 @@ export class Game {
   private bobPhase = 0;
   private over = false;
   private started = false;
+  private audio = new GameAudio();
+  private graceUntil = 0; // ms timestamp — monsters idle until then (spawn safety)
+  private lastGrowl = 0;
 
   constructor(container: HTMLElement) {
     this.renderer = new DungeonRenderer(container);
@@ -70,6 +74,8 @@ export class Game {
     const titleEl = document.getElementById('title')!;
     const dismissTitle = () => {
       if (this.started) return;
+      this.audio.unlock(); // user gesture — safe to start audio
+      this.audio.startAmbient();
       titleEl.style.display = 'none';
       this.started = true;
       this.hud.log('You descend into the Hollowdeep.');
@@ -122,9 +128,20 @@ export class Game {
     this.d = d;
     this.px = d.start.x;
     this.py = d.start.y;
-    this.dir = 1;
+    // Spawn safety: face the first open direction (prefer east), never a wall.
+    this.dir = [1, 0, 2, 3].find((dd) => {
+      const [fx, fy] = [
+        [0, -1],
+        [1, 0],
+        [0, 1],
+        [-1, 0],
+      ][dd];
+      return isWalkable(d, this.px + fx, this.py + fy);
+    }) ?? 1;
     this.tween = null;
     this.exitHintTier = 0;
+    // Grace period: the labyrinth hasn't noticed you yet (~3s).
+    this.graceUntil = performance.now() + 3000;
     this.occupied.clear();
     for (const m of this.monsters) killMonster(this.renderer.scene, m);
     this.monsters = spawnGibberlings(this.renderer.scene, d, 5 + d.level * 2, [d.start]);
@@ -133,6 +150,7 @@ export class Game {
     markVisited(d, this.px, this.py);
     this.renderer.setView(this.px, this.py, this.dir);
     this.hud.setHp(this.hp, this.maxHp);
+    this.hud.setGold(this.gold);
     this.hud.drawMinimap(d, this.px, this.py, this.dir, this.monsters);
     if (!first) {
       this.hud.flash(`DEPTH ${d.level}`, 2500);
@@ -177,9 +195,13 @@ export class Game {
     };
     markVisited(this.d, nx, ny);
     this.exitWhisper();
+    this.audio.footstep();
     if (this.d.grid[ny][nx] === EXIT) {
       setTimeout(() => {
-        if (!this.over) this.newLevel(generateDungeon(15, this.d.level + 1));
+        if (!this.over) {
+          this.audio.descend();
+          this.newLevel(generateDungeon(15, this.d.level + 1));
+        }
       }, 350);
     }
   }
@@ -269,9 +291,12 @@ export class Game {
     const target = this.monsters.find(
       (m) => m.alive && m.pos.x === this.px + fx && m.pos.y === this.py + fy
     );
-    if (target) this.attack(target);
-    else {
+    if (target) {
+      this.audio.swing();
+      this.attack(target);
+    } else {
       // Whiff — small lunge animation via quick yaw nudge is overkill; just log occasionally.
+      this.audio.swing();
       this.hud.log('You strike at empty air.');
     }
   }
@@ -279,6 +304,10 @@ export class Game {
   private attack(m: Monster) {
     const dmg = 2 + ((Math.random() * 3) | 0); // 2–4
     m.hp -= dmg;
+    // Hit feedback: flash + shake + flinch pop.
+    this.audio.hitFlesh();
+    this.hud.hitFlash();
+    this.renderer.addShake(0.12);
     // Knockback flash: scale pop.
     m.sprite.scale.set(2.0, 2.0, 1);
     setTimeout(() => m.sprite.scale.set(1.6, 1.6, 1), 120);
@@ -305,15 +334,25 @@ export class Game {
       return;
     }
     this.d.searched.add(k);
+    this.audio.search();
     const content: CellContent = this.d.contents.get(k) ?? null;
     if (content === 'gold') {
       const g = 5 + ((Math.random() * 20) | 0);
       this.gold += g;
+      this.hud.setGold(this.gold);
+      this.audio.find();
       this.hud.log(`You find ${g} guild coins in a cracked strongbox.`);
+    } else if (content === 'bandage') {
+      this.hp = Math.min(this.maxHp, this.hp + 4);
+      this.hud.setHp(this.hp, this.maxHp);
+      this.audio.find();
+      this.hud.log('A wax-sealed bundle: clean bandages. +4 HP. Someone was prepared.');
     } else if (content === 'trap') {
       const dmg = 2 + ((Math.random() * 3) | 0);
       this.hp -= dmg;
       this.hud.setHp(this.hp, this.maxHp);
+      this.audio.trap();
+      this.renderer.addShake(0.18);
       this.hud.log(`A needle trap! ${dmg} damage. The labyrinth approves of your curiosity.`);
       this.checkDeath();
     } else if (content === 'lore') {
@@ -331,6 +370,7 @@ export class Game {
   private checkDeath() {
     if (this.hp <= 0 && !this.over) {
       this.over = true;
+      this.audio.death();
       this.hud.flash('THE DEEP CLAIMS YOU', 4000);
       this.hud.log(`You died on depth ${this.d.level} with ${this.gold} coins. Click to try again.`);
       document.getElementById('title')!.style.display = 'flex';
@@ -365,22 +405,59 @@ export class Game {
       }
     }
 
-    // Monster ticks on a timer.
+    // Monster ticks on a timer. Grace period: the labyrinth hasn't noticed you yet.
     this.tickTimer += dt;
     if (this.tickTimer > 0.55) {
       this.tickTimer = 0;
-      for (const m of this.monsters) {
-        const events = monsterTick(m, this.d, { x: this.px, y: this.py }, this.occupied);
-        for (const e of events) {
-          if (e === 'hit:1') {
-            this.hp -= 1;
-            this.hud.setHp(this.hp, this.maxHp);
-            this.hud.log('A Gibberling bites you! -1 HP.');
-            this.checkDeath();
+      const graced = performance.now() < this.graceUntil;
+      if (!graced) {
+        for (const m of this.monsters) {
+          const events = monsterTick(m, this.d, { x: this.px, y: this.py }, this.occupied);
+          for (const e of events) {
+            if (e === 'hit:1') {
+              this.hp -= 1;
+              this.hud.setHp(this.hp, this.maxHp);
+              this.hud.log('A Gibberling bites you! -1 HP.');
+              this.audio.bite();
+              this.audio.hurt();
+              this.renderer.addShake(0.22);
+              this.hud.damageFlash(this.biteDirection(m));
+              this.checkDeath();
+            }
           }
+        }
+      }
+      // Growl when something is near — you hear it before you see it.
+      const now = performance.now();
+      if (!this.over && now - this.lastGrowl > 4000) {
+        let nearest = 99;
+        for (const m of this.monsters) {
+          if (!m.alive) continue;
+          const d = Math.abs(m.pos.x - this.px) + Math.abs(m.pos.y - this.py);
+          if (d < nearest) nearest = d;
+        }
+        if (nearest <= 5) {
+          this.lastGrowl = now;
+          this.audio.growl(1 - nearest / 6);
         }
       }
       this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
     }
+  }
+
+  /** Direction of monster m relative to where the player faces. */
+  private biteDirection(m: Monster): 'front' | 'left' | 'right' | 'back' {
+    const dx = m.pos.x - this.px;
+    const dy = m.pos.y - this.py;
+    const dirs = [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ];
+    const aIdx = dirs.findIndex(([x, y]) => x === dx && y === dy);
+    if (aIdx === -1) return 'front';
+    const rel = (aIdx - this.dir + 4) % 4;
+    return rel === 0 ? 'front' : rel === 1 ? 'right' : rel === 2 ? 'back' : 'left';
   }
 }
