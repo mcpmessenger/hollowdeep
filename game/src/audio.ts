@@ -6,6 +6,7 @@ export class GameAudio {
   private master: GainNode | null = null;
   private ambientNodes: OscillatorNode[] = [];
   private noiseBuf: AudioBuffer | null = null;
+  private whisperBufs: Record<'far' | 'near', AudioBuffer | null> = { far: null, near: null };
 
   /** Call from a user gesture. Safe to call repeatedly. */
   unlock() {
@@ -21,6 +22,15 @@ export class GameAudio {
       this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const data = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      // Preload the spoken whisper lines (served from /audio/). Fire-and-forget:
+      // if a file fails, whisper() falls back to the procedural bed alone.
+      (['far', 'near'] as const).forEach((kind) => {
+        fetch(new URL(`audio/whisper-${kind}.mp3`, document.baseURI).toString())
+          .then((r) => { if (!r.ok) throw new Error(`whisper ${kind}: ${r.status}`); return r.arrayBuffer(); })
+          .then((ab) => this.ctx!.decodeAudioData(ab))
+          .then((buf) => { this.whisperBufs[kind] = buf; })
+          .catch((e) => console.warn('[audio] whisper preload failed:', e));
+      });
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
@@ -129,10 +139,35 @@ export class GameAudio {
     this.noise(1.0, 800, 'lowpass', 0.3, 0.2, 100);
   }
 
-  /** Wordless breathy whisper — the labyrinth breathing near the exit shaft.
-   *  intensity 1 = faint (tier 1), 2 = close (tier 2). No words: shaped noise
-   *  through voice-like formant bands, drifting around the listener's head. */
-  whisper(intensity = 1) {
+  /** Spoken exit whisper: the AI-voiced line over a breathy procedural bed.
+   *  'far' = faint tier (<=9 cells), 'near' = close tier (<=4). If the voice
+   *  file hasn't loaded yet, the bed plays alone. */
+  whisper(kind: 'far' | 'near') {
+    if (!this.ready) return;
+    const ctx = this.ctx!;
+    const buf = this.whisperBufs[kind];
+    if (buf) {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      // Slightly slowed + darkened: more whisper, less announcement.
+      src.playbackRate.value = 0.92 + Math.random() * 0.06;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2200;
+      const g = ctx.createGain();
+      g.gain.value = kind === 'near' ? 0.9 : 0.6;
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = Math.random() * 2 - 1;
+      src.connect(lp).connect(g).connect(pan).connect(this.master!);
+      src.start(ctx.currentTime);
+    }
+    this.whisperBed(kind === 'near' ? 1.6 : 1);
+  }
+
+  /** Wordless breathy bed under the spoken line (also the no-file fallback).
+   *  intensity 1 = faint, ~2 = close. No words: shaped noise through
+   *  voice-like formant bands, drifting around the listener's head. */
+  private whisperBed(intensity = 1) {
     if (!this.ready) return;
     const ctx = this.ctx!;
     const t = ctx.currentTime;

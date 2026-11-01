@@ -215,11 +215,11 @@ export class Game {
     if (dist <= 4 && this.exitHintTier < 2) {
       this.exitHintTier = 2;
       this.hud.log('Cold blue light bleeds through the cracks. Close now.');
-      this.audio.whisper(2);
+      this.audio.whisper('near');
     } else if (dist <= 9 && this.exitHintTier < 1) {
       this.exitHintTier = 1;
       this.hud.log('The air turns cold. Something blue breathes nearby.');
-      this.audio.whisper(1);
+      this.audio.whisper('far');
     }
   }
 
