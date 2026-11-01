@@ -161,6 +161,102 @@ export function gibberlingSprite(): HTMLCanvasElement {
   return c;
 }
 
+/** A marrow wraith: a pale, half-there thing with hollow eyes. */
+export function wraithSprite(): HTMLCanvasElement {
+  const S = 128;
+  const [c, ctx] = canvas(S);
+  ctx.clearRect(0, 0, S, S);
+  // wispy body — pale blue, translucent
+  const g = ctx.createRadialGradient(S / 2, S * 0.42, 6, S / 2, S * 0.42, S * 0.48);
+  g.addColorStop(0, 'rgba(200,220,235,0.85)');
+  g.addColorStop(0.6, 'rgba(140,170,200,0.45)');
+  g.addColorStop(1, 'rgba(120,150,190,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(S / 2, S * 0.42, S * 0.48, 0, 7);
+  ctx.fill();
+  // tattered trailing wisps
+  ctx.strokeStyle = 'rgba(160,190,215,0.5)';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 12; i++) {
+    const x = S * 0.2 + Math.random() * S * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(x, S * 0.55);
+    ctx.quadraticCurveTo(x + (Math.random() - 0.5) * 20, S * 0.75, x + (Math.random() - 0.5) * 30, S * 0.95);
+    ctx.stroke();
+  }
+  // hollow dark eyes — no glow, just absence
+  ctx.fillStyle = '#060a10';
+  for (const ex of [S * 0.38, S * 0.62]) {
+    ctx.beginPath();
+    ctx.ellipse(ex, S * 0.36, 7, 10, 0, 0, 7);
+    ctx.fill();
+  }
+  // faint cold rim light
+  ctx.save();
+  ctx.shadowColor = '#9fd4ff';
+  ctx.shadowBlur = 18;
+  ctx.strokeStyle = 'rgba(180,220,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(S / 2, S * 0.42, S * 0.4, 0, 7);
+  ctx.stroke();
+  ctx.restore();
+  return c;
+}
+
+/** Chad: middle-management minotaur. Big, horned, wears a nametag. */
+export function chadSprite(): HTMLCanvasElement {
+  const S = 128;
+  const [c, ctx] = canvas(S);
+  ctx.clearRect(0, 0, S, S);
+  // bulky body
+  const g = ctx.createRadialGradient(S / 2, S * 0.55, 8, S / 2, S * 0.55, S * 0.5);
+  g.addColorStop(0, '#6b4a33');
+  g.addColorStop(0.7, '#3d2a1c');
+  g.addColorStop(1, 'rgba(30,20,12,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(S / 2, S * 0.55, S * 0.48, 0, 7);
+  ctx.fill();
+  // horns
+  ctx.strokeStyle = '#d8cdb4';
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'round';
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(S / 2 + s * S * 0.22, S * 0.28);
+    ctx.quadraticCurveTo(S / 2 + s * S * 0.42, S * 0.18, S / 2 + s * S * 0.38, S * 0.02);
+    ctx.stroke();
+  }
+  // eyes — red, managerial fury
+  ctx.save();
+  ctx.shadowColor = '#ff2a1a';
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = '#ff3b28';
+  for (const ex of [S * 0.4, S * 0.6]) {
+    ctx.beginPath();
+    ctx.arc(ex, S * 0.34, 6, 0, 7);
+    ctx.fill();
+  }
+  ctx.restore();
+  // crisp dark pupils
+  ctx.fillStyle = '#1a0505';
+  for (const ex of [S * 0.4, S * 0.6]) {
+    ctx.beginPath();
+    ctx.arc(ex, S * 0.34, 2.4, 0, 7);
+    ctx.fill();
+  }
+  // nametag
+  ctx.fillStyle = '#e8e0cc';
+  ctx.fillRect(S * 0.38, S * 0.62, S * 0.24, S * 0.1);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.font = `bold ${Math.round(S * 0.07)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('CHAD', S / 2, S * 0.695);
+  return c;
+}
+
 function toTexture(c: HTMLCanvasElement, repeat = 1): THREE.CanvasTexture {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;

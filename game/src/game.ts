@@ -11,9 +11,52 @@ import {
   CellContent,
   EXIT,
 } from './dungeon';
-import { Monster, spawnGibberlings, monsterTick, killMonster } from './monsters';
+import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster } from './monsters';
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio } from './audio';
+
+interface Best {
+  depth: number;
+  kills: number;
+  gold: number;
+}
+
+const BEST_KEY = 'hollowdeep.best.v1';
+
+function loadBest(): Best | null {
+  try {
+    const raw = localStorage.getItem(BEST_KEY);
+    return raw ? (JSON.parse(raw) as Best) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveBest(b: Best) {
+  try {
+    localStorage.setItem(BEST_KEY, JSON.stringify(b));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Per-kind wind-up barks. Chad middle-manages his bites. */
+function windupBark(m: Monster): string {
+  if (m.kind === 'chad')
+    return [
+      'Chad schedules a mandatory bite.',
+      'Chad wants to circle back… to your throat.',
+      'Per my last email: RUN.',
+    ][(Math.random() * 3) | 0];
+  if (m.kind === 'wraith') return 'The Marrow Wraith inhales — like wind through ribs. Move!';
+  return 'The Gibberling rears back, eyes blazing — move!';
+}
+
+const DEATH_BARKS: Record<MonsterKind, string[]> = {
+  gibberling: ['SKREEE…', '*the gnawing stops*', 'The static clears.'],
+  wraith: ['The wraith unravels into cold air.', '*a sigh, then silence*'],
+  chad: ['Chad has left the dungeon. His calendar is finally clear.'],
+};
 
 const LORE = [
   'Scratched into the wall: "THE MAPS WERE RIGHT. THE DUNGEON CHEATS." — S.V.',
@@ -57,19 +100,12 @@ export class Game {
   private audio = new GameAudio();
   private graceUntil = 0; // ms timestamp — monsters idle until then (spawn safety)
   private lastGrowl = 0;
+  private kills = 0; // this run — remembered in localStorage on death
 
   constructor(container: HTMLElement) {
     this.renderer = new DungeonRenderer(container);
     this.d = generateDungeon(15, 1);
     this.newLevel(this.d, true);
-
-    addEventListener('keydown', (e) => {
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
-      if (e.repeat) return;
-      this.keys.add(e.key.toLowerCase());
-      this.handleKey(e.key.toLowerCase());
-    });
-    addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
 
     const titleEl = document.getElementById('title')!;
     const dismissTitle = () => {
@@ -81,15 +117,40 @@ export class Game {
       this.hud.log('You descend into the Hollowdeep.');
       this.hud.log('Find the shaft of blue light. Go down.');
     };
+    // Best depth on the title screen — the labyrinth keeps score.
+    const best = loadBest();
+    if (best) {
+      document.querySelector('#title p')!.textContent =
+        `THE LABYRINTH REARRANGES ITSELF NIGHTLY · BEST: DEPTH ${best.depth}`;
+    }
     titleEl.addEventListener('click', dismissTitle);
     // Keyboard users: Enter or Space on the focused title starts the game.
     titleEl.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         e.stopPropagation(); // don't let the game-input handler also see this key
-        dismissTitle();
+        if (this.over) location.reload();
+        else dismissTitle();
       }
     });
+
+    addEventListener('keydown', (e) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      if (e.repeat) return;
+      // Title up: Enter/Space descends even when the title box isn't focused.
+      if (!this.started && (e.key === 'Enter' || e.key === ' ')) {
+        dismissTitle();
+        return;
+      }
+      // Dead: Enter/Space tries again.
+      if (this.over && (e.key === 'Enter' || e.key === ' ')) {
+        location.reload();
+        return;
+      }
+      this.keys.add(e.key.toLowerCase());
+      this.handleKey(e.key.toLowerCase());
+    });
+    addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
 
     // Autotest hook: #autotest runs a scripted playthrough for headless verification.
     if (location.hash === '#autotest') {
@@ -144,7 +205,7 @@ export class Game {
     this.graceUntil = performance.now() + 3000;
     this.occupied.clear();
     for (const m of this.monsters) killMonster(this.renderer.scene, m);
-    this.monsters = spawnGibberlings(this.renderer.scene, d, 5 + d.level * 2, [d.start]);
+    this.monsters = spawnMonsters(this.renderer.scene, d, [d.start]);
     for (const m of this.monsters) this.occupied.add(`${m.pos.x},${m.pos.y}`);
     this.renderer.build(d);
     markVisited(d, this.px, this.py);
@@ -155,6 +216,9 @@ export class Game {
     if (!first) {
       this.hud.flash(`DEPTH ${d.level}`, 2500);
       this.hud.log(`You descend to depth ${d.level}. The walls feel… aware.`);
+      if (d.level >= 3 && this.monsters.some((m) => m.kind === 'chad' && m.alive)) {
+        this.hud.log('A nametag glints in the deeper dark: CHAD. Middle management has found you.');
+      }
     }
   }
 
@@ -313,20 +377,30 @@ export class Game {
     this.hud.damageNumber(dmg);
     this.renderer.addShake(0.18);
     // Knockback flash: scale pop.
-    m.sprite.scale.set(2.0, 2.0, 1);
-    setTimeout(() => m.sprite.scale.set(1.6, 1.6, 1), 120);
+    const pop = m.scale * 1.25;
+    m.sprite.scale.set(pop, pop, 1);
+    setTimeout(() => m.sprite.scale.set(m.scale, m.scale, 1), 120);
     if (m.hp <= 0) {
       killMonster(this.renderer.scene, m);
       this.occupied.delete(`${m.pos.x},${m.pos.y}`);
-      const barks = ['SKREEE…', '*the gnawing stops*', 'The static clears.'];
-      this.hud.log(`Gibberling slain (${dmg}). ${barks[(Math.random() * barks.length) | 0]}`);
-      if (Math.random() < 0.3) {
+      this.kills++;
+      const barks = DEATH_BARKS[m.kind];
+      this.hud.log(`${m.name} slain (${dmg}). ${barks[(Math.random() * barks.length) | 0]}`);
+      if (m.kind === 'chad') {
+        // The expense account spills everywhere.
+        const g = 30 + ((Math.random() * 21) | 0);
+        this.gold += g;
+        this.hp = Math.min(this.maxHp, this.hp + 6);
+        this.hud.setGold(this.gold);
+        this.hud.setHp(this.hp, this.maxHp);
+        this.hud.log(`Chad's expense account spills everywhere: +${g} coins, +6 HP.`);
+      } else if (m.kind === 'gibberling' && Math.random() < 0.3) {
         this.hp = Math.min(this.maxHp, this.hp + 2);
         this.hud.log('It was guarding a scrap of rations. +2 HP.');
         this.hud.setHp(this.hp, this.maxHp);
       }
     } else {
-      this.hud.log(`You hit the Gibberling for ${dmg}.`);
+      this.hud.log(`You hit the ${m.name} for ${dmg}.`);
     }
   }
 
@@ -375,11 +449,20 @@ export class Game {
     if (this.hp <= 0 && !this.over) {
       this.over = true;
       this.audio.death();
+      // The labyrinth keeps score.
+      const run: Best = { depth: this.d.level, kills: this.kills, gold: this.gold };
+      const prev = loadBest();
+      const isBest = !prev || run.depth > prev.depth || (run.depth === prev.depth && run.gold > prev.gold);
+      if (isBest) saveBest(run);
+      const bestLine = isBest
+        ? 'A NEW BEST.'
+        : `BEST: DEPTH ${prev!.depth} · ${prev!.kills} KILLS`;
       this.hud.flash('THE DEEP CLAIMS YOU', 4000);
-      this.hud.log(`You died on depth ${this.d.level} with ${this.gold} coins. Click to try again.`);
+      this.hud.log(`You died on depth ${run.depth} with ${run.gold} coins and ${run.kills} kills. ${bestLine}`);
       document.getElementById('title')!.style.display = 'flex';
       document.querySelector('#title h1')!.textContent = 'CLAIMED';
-      document.querySelector('#title p')!.textContent = 'THE LABYRINTH REARRANGES ITSELF TONIGHT';
+      document.querySelector('#title p')!.textContent =
+        `DEPTH ${run.depth} · ${run.kills} KILLS · ${run.gold} COINS — ${bestLine}`;
       document.querySelector('#title .enter')!.textContent = 'DESCEND AGAIN';
       document.getElementById('title')!.onclick = () => location.reload();
     }
@@ -409,33 +492,35 @@ export class Game {
       }
     }
 
-    // Monster ticks on a timer. Grace period: the labyrinth hasn't noticed you yet.
+    // Monster ticks on a timer. Grace period: the labyrinth hasn't noticed you yet
+    // — but the dead were already awake. Wraiths ignore the grace period.
     this.tickTimer += dt;
     if (this.tickTimer > 0.55) {
       this.tickTimer = 0;
       const graced = performance.now() < this.graceUntil;
-      if (!graced) {
-        for (const m of this.monsters) {
-          const events = monsterTick(m, this.d, { x: this.px, y: this.py }, this.occupied);
-          for (const e of events) {
-            if (e === 'windup') {
-              // Telegraph: eyes flare (scale pop) + warning growl. Dodge by moving.
-              m.sprite.scale.set(2.1, 2.1, 1);
-              setTimeout(() => {
-                if (m.alive) m.sprite.scale.set(1.6, 1.6, 1);
-              }, 400);
-              this.audio.growl(0.9);
-              this.hud.log('The Gibberling rears back, eyes blazing — move!');
-            } else if (e === 'hit:1') {
-              this.hp -= 1;
-              this.hud.setHp(this.hp, this.maxHp);
-              this.hud.log('A Gibberling bites you! -1 HP.');
-              this.audio.bite();
-              this.audio.hurt();
-              this.renderer.addShake(0.22);
-              this.hud.damageFlash(this.biteDirection(m));
-              this.checkDeath();
-            }
+      for (const m of this.monsters) {
+        if (graced && m.kind !== 'wraith') continue;
+        const events = monsterTick(m, this.d, { x: this.px, y: this.py }, this.occupied);
+        for (const e of events) {
+          if (e === 'windup') {
+            // Telegraph: eyes flare (scale pop) + warning growl. Dodge by moving.
+            const wpop = m.scale * 1.3;
+            m.sprite.scale.set(wpop, wpop, 1);
+            setTimeout(() => {
+              if (m.alive) m.sprite.scale.set(m.scale, m.scale, 1);
+            }, 400);
+            this.audio.growl(0.9);
+            this.hud.log(windupBark(m));
+          } else if (e.startsWith('hit:')) {
+            const bdmg = parseInt(e.slice(4), 10) || 1;
+            this.hp -= bdmg;
+            this.hud.setHp(this.hp, this.maxHp);
+            this.hud.log(`A ${m.name} bites you! -${bdmg} HP.`);
+            this.audio.bite();
+            this.audio.hurt();
+            this.renderer.addShake(0.22);
+            this.hud.damageFlash(this.biteDirection(m));
+            this.checkDeath();
           }
         }
       }

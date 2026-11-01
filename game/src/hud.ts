@@ -112,12 +112,12 @@ export class HUD {
         ctx.fillRect(x * cell, y * cell, cell, cell);
       }
     }
-    // monsters on visited cells
+    // monsters on visited cells — color by kind
     for (const m of monsters) {
       if (!m.alive || !seen.has(`${m.pos.x},${m.pos.y}`)) continue;
-      ctx.fillStyle = '#c03030';
+      ctx.fillStyle = m.kind === 'wraith' ? '#9fd4ff' : m.kind === 'chad' ? '#ff8c2a' : '#c03030';
       ctx.beginPath();
-      ctx.arc((m.pos.x + 0.5) * cell, (m.pos.y + 0.5) * cell, cell * 0.3, 0, 7);
+      ctx.arc((m.pos.x + 0.5) * cell, (m.pos.y + 0.5) * cell, cell * (m.kind === 'chad' ? 0.45 : 0.3), 0, 7);
       ctx.fill();
     }
     // player arrow
