@@ -116,12 +116,15 @@ export class Game {
     requestAnimationFrame(loop);
   }
 
+  private exitHintTier = 0; // 0 = none, 1 = faint cold, 2 = near — reset each level
+
   private newLevel(d: Dungeon, first = false) {
     this.d = d;
     this.px = d.start.x;
     this.py = d.start.y;
     this.dir = 1;
     this.tween = null;
+    this.exitHintTier = 0;
     this.occupied.clear();
     for (const m of this.monsters) killMonster(this.renderer.scene, m);
     this.monsters = spawnGibberlings(this.renderer.scene, d, 5 + d.level * 2, [d.start]);
@@ -173,10 +176,25 @@ export class Game {
       turning: false,
     };
     markVisited(this.d, nx, ny);
+    this.exitWhisper();
     if (this.d.grid[ny][nx] === EXIT) {
       setTimeout(() => {
         if (!this.over) this.newLevel(generateDungeon(15, this.d.level + 1));
       }, 350);
+    }
+  }
+
+  /** Hot/cold exit sense: tiered whispers as the player nears the shaft. */
+  private exitWhisper() {
+    const dist =
+      Math.abs(this.px - this.d.exit.x) + Math.abs(this.py - this.d.exit.y);
+    if (dist === 0) return; // standing in it — descending anyway
+    if (dist <= 4 && this.exitHintTier < 2) {
+      this.exitHintTier = 2;
+      this.hud.log('Cold blue light bleeds through the cracks. Close now.');
+    } else if (dist <= 9 && this.exitHintTier < 1) {
+      this.exitHintTier = 1;
+      this.hud.log('The air turns cold. Something blue breathes nearby.');
     }
   }
 
