@@ -32,7 +32,7 @@ export class DungeonRenderer {
     this.textures = makeTextures();
 
     // Near-black ambient so unlit areas aren't pure void.
-    this.scene.add(new THREE.AmbientLight(0x1a1410, 0.6));
+    this.scene.add(new THREE.AmbientLight(0x2a2018, 0.9));
 
     // The player's torch.
     this.torch = new THREE.PointLight(0xff9a3c, 30, 22, 1.8);
@@ -108,13 +108,20 @@ export class DungeonRenderer {
     this.exitMarker.position.set(d.exit.x * CELL, WALL_H / 2, d.exit.y * CELL);
     this.scene.add(this.exitMarker);
     this.wallMeshes.push(this.exitMarker);
+
+    // Cold blue glow so the exit reads through fog at distance.
+    const exitLight = new THREE.PointLight(0x6ab8ff, 20, 14, 1.8);
+    exitLight.position.set(d.exit.x * CELL, 2.5, d.exit.y * CELL);
+    this.scene.add(exitLight);
+    this.wallMeshes.push(exitLight as unknown as THREE.Mesh);
   }
 
   /** Place camera + torch at grid cell, facing dir (0=N,1=E,2=S,3=W). */
   setView(x: number, y: number, dir: number, bobPhase = 0) {
     const px = x * CELL;
     const pz = y * CELL;
-    const yaw = [Math.PI, -Math.PI / 2, 0, Math.PI / 2][dir];
+    // Camera default looks along -Z = map north (world -Z = decreasing y).
+    const yaw = [0, -Math.PI / 2, Math.PI, Math.PI / 2][dir];
     this.camera.position.set(px, 1.7 + Math.sin(bobPhase) * 0.05, pz);
     this.camera.rotation.set(0, yaw, 0, 'YXZ');
     this.torch.position.set(px, 2.6, pz);

@@ -74,6 +74,25 @@ export class Game {
       this.hud.log('Find the shaft of blue light. Go down.');
     });
 
+    // Autotest hook: #autotest runs a scripted playthrough for headless verification.
+    if (location.hash === '#autotest') {
+      setTimeout(() => {
+        document.getElementById('title')!.style.display = 'none';
+        this.started = true;
+        this.hud.log('You descend into the Hollowdeep.');
+        const seq = ['w', 'w', 'arrowright', 'w', 'f', 'w', 'a', 'w', ' ', 'f'];
+        let i = 0;
+        const step = () => {
+          if (i < seq.length && !this.over) {
+            this.handleKey(seq[i]);
+            i++;
+            setTimeout(step, 600);
+          }
+        };
+        setTimeout(step, 800);
+      }, 800);
+    }
+
     let last = performance.now();
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -108,7 +127,8 @@ export class Game {
   }
 
   private yawFor(dir: number): number {
-    return [Math.PI, -Math.PI / 2, 0, Math.PI / 2][dir];
+    // Camera default looks along -Z (map north). dir: 0=N,1=E,2=S,3=W.
+    return [0, -Math.PI / 2, Math.PI, Math.PI / 2][dir];
   }
 
   private tryStep(dx: number, dy: number) {

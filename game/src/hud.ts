@@ -59,7 +59,8 @@ export class HUD {
     ctx.fillStyle = '#e8d9a0';
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate([Math.PI, Math.PI / 2, 0, -Math.PI / 2][dir]);
+    // Canvas up = map north. dir: 0=N,1=E,2=S,3=W.
+    ctx.rotate([0, Math.PI / 2, Math.PI, -Math.PI / 2][dir]);
     ctx.beginPath();
     ctx.moveTo(0, -cell * 0.45);
     ctx.lineTo(cell * 0.3, cell * 0.35);
