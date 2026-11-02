@@ -188,7 +188,7 @@ export class Game {
         this.started = true;
         this.px = this.d.lair.x;
         this.py = this.d.lair.y;
-        this.dir = 1;
+        this.dir = this.d.lair.fireDir; // face the fireplace straight on
         markVisited(this.d, this.px, this.py);
         this.renderer.setView(this.px, this.py, this.dir);
         this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
@@ -234,7 +234,7 @@ export class Game {
     this.occupied.clear();
     for (const m of this.monsters) killMonster(this.renderer.scene, m);
     resetSpriteRegistry(); // all level materials disposed above
-    this.monsters = spawnMonsters(this.renderer.scene, d, [d.start]);
+    this.monsters = spawnMonsters(this.renderer.scene, d, [d.start, { x: d.lair.x, y: d.lair.y }]);
     for (const m of this.monsters) this.occupied.add(`${m.pos.x},${m.pos.y}`);
     this.renderer.build(d);
     markVisited(d, this.px, this.py);

@@ -253,11 +253,17 @@ export class DungeonRenderer {
       { x: 0, z: 1 },
       { x: -1, z: 0 },
     ][shelfDir];
+    // Single-wall cell: the shelf shares the fireplace's wall — shift it
+    // sideways along the wall so it doesn't swallow the hearth.
+    const sameWall = shelfDir === d.lair.fireDir;
+    const lat = sameWall ? 1.35 : 0;
+    const perpx = -svec.z;
+    const perpz = svec.x;
     const shelf = new THREE.Mesh(
       new THREE.BoxGeometry(2.3, 2.5, 0.55),
       new THREE.MeshStandardMaterial({ map: this.makeBookshelfTexture(), roughness: 0.9 })
     );
-    shelf.position.set(cx + svec.x * 1.55, 1.25, cz + svec.z * 1.55);
+    shelf.position.set(cx + svec.x * 1.55 + perpx * lat, 1.25, cz + svec.z * 1.55 + perpz * lat);
     shelf.rotation.y = yawFor(-svec.x, -svec.z);
     group.add(shelf);
 
