@@ -48,7 +48,8 @@ export interface Dungeon {
   lair: Lair;
   /** lair loot taken this level: 'shelf' (journal), 'table' (tonic), 'cauldron' (brew) */
   lairTaken: Set<string>;
-  /** furniture cells — not walkable */
+  /** solid masonry — not walkable (the hearth; shelf/table/cauldron are
+   *  walk-around-able so the study never feels cramped) */
   blocked: Set<string>;
 }
 
@@ -212,8 +213,7 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
     table,
     cauldron,
   };
-  const blocked = new Set<string>();
-  for (const c of [hearth, shelf, table, cauldron]) blocked.add(key(c.x, c.y));
+  const blocked = new Set<string>([key(hearth.x, hearth.y)]);
 
   return { size, grid, start, exit, contents, searched: new Set(), level, lair, lairTaken: new Set(), blocked };
 }

@@ -321,9 +321,10 @@ export class DungeonRenderer {
       group.add(cork);
     });
 
-    // -- Cauldron: iron pot over coals, green brew, rising bubbles --
-    const ccx = L.cauldron.x * CELL;
-    const ccz = L.cauldron.y * CELL;
+    // -- Cauldron: tucked into the room-corner of its cell so the walkable
+    // lane past it stays clear. Iron pot over coals, green brew, bubbles.
+    const ccx = L.cauldron.x * CELL + (svec.x + dirVec.x) * 1.2;
+    const ccz = L.cauldron.y * CELL + (svec.z + dirVec.z) * 1.2;
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2;
       const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 8), ironMat);
