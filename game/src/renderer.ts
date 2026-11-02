@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { Dungeon, WALL, EXIT } from './dungeon';
-import { makeTextures, TextureSet } from './textures';
+import { makeTextures, TextureSet, registerTexMat, resetTexRegistry } from './textures';
 
 export const CELL = 4; // world units per grid cell
 const WALL_H = 4;
@@ -62,6 +62,7 @@ export class DungeonRenderer {
       if (g) g.dispose();
     }
     this.wallMeshes = [];
+    resetTexRegistry();
 
     const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
     const wallMat = new THREE.MeshStandardMaterial({
@@ -69,6 +70,7 @@ export class DungeonRenderer {
       roughness: 0.95,
       metalness: 0,
     });
+    registerTexMat('wall', wallMat);
 
     for (let y = 0; y < d.size; y++) {
       for (let x = 0; x < d.size; x++) {
@@ -83,10 +85,9 @@ export class DungeonRenderer {
 
     // Floor + ceiling as single planes.
     const S = d.size * CELL;
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(S, S),
-      new THREE.MeshStandardMaterial({ map: this.textures.floor, roughness: 1 })
-    );
+    const floorMat = new THREE.MeshStandardMaterial({ map: this.textures.floor, roughness: 1 });
+    registerTexMat('floor', floorMat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(S, S), floorMat);
     floor.material.map!.repeat.set(d.size, d.size);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set((S - CELL) / 2, 0, (S - CELL) / 2);
@@ -94,10 +95,9 @@ export class DungeonRenderer {
     this.scene.add(floor);
     this.wallMeshes.push(floor as unknown as THREE.Mesh);
 
-    const ceil = new THREE.Mesh(
-      new THREE.PlaneGeometry(S, S),
-      new THREE.MeshStandardMaterial({ map: this.textures.ceil, roughness: 1 })
-    );
+    const ceilMat = new THREE.MeshStandardMaterial({ map: this.textures.ceil, roughness: 1 });
+    registerTexMat('ceil', ceilMat);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(S, S), ceilMat);
     ceil.material.map!.repeat.set(d.size, d.size);
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set((S - CELL) / 2, WALL_H, (S - CELL) / 2);

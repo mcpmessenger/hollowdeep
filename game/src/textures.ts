@@ -1,5 +1,9 @@
 // Procedural canvas textures — placeholders until the AI-generated
 // "world model style" set lands. All textures are tileable-ish and dark.
+//
+// The AI set (game/public/textures/*.png) preloads at module boot and
+// upgrades the live TextureSet when each PNG arrives, same pattern as the
+// monster sprites in monsters.ts. Failures keep the procedural fallback.
 
 import * as THREE from 'three';
 
@@ -272,9 +276,65 @@ export interface TextureSet {
 }
 
 export function makeTextures(): TextureSet {
-  return {
+  const set: TextureSet = {
     wall: toTexture(stoneWall()),
     floor: toTexture(flagstone(), 1),
     ceil: toTexture(ceiling()),
   };
+  liveSet = set;
+  // PNGs that beat the constructor get applied now.
+  (Object.keys(readyImgs) as TexKind[]).forEach((k) => upgradeTex(k, readyImgs[k]!));
+  return set;
 }
+
+// --- AI texture upgrade (world-model set) ---
+
+type TexKind = keyof TextureSet; // 'wall' | 'floor' | 'ceil'
+
+const PNG_NAME: Record<TexKind, string> = {
+  wall: 'wall.png',
+  floor: 'floor.png',
+  ceil: 'ceiling.png',
+};
+
+/** Materials currently using a texture, so the PNG swap hits live geometry. */
+const texMats: Array<{ kind: TexKind; mat: THREE.MeshStandardMaterial }> = [];
+let liveSet: TextureSet | null = null;
+const readyImgs: Partial<Record<TexKind, HTMLImageElement>> = {};
+
+export function registerTexMat(kind: TexKind, mat: THREE.MeshStandardMaterial) {
+  texMats.push({ kind, mat });
+}
+
+/** Call when a level is torn down — its materials are rebuilt on the next build(). */
+export function resetTexRegistry() {
+  texMats.length = 0;
+}
+
+/** Swap one texture to its AI PNG. Future materials use it via liveSet. */
+function upgradeTex(kind: TexKind, img: HTMLImageElement) {
+  if (!liveSet) return;
+  const old = liveSet[kind];
+  const t = new THREE.CanvasTexture(img);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.repeat.copy(old.repeat); // preserve per-level repeat (floor/ceiling tile per dungeon size)
+  old.dispose();
+  liveSet[kind] = t;
+  for (const e of texMats) {
+    if (e.kind === kind) e.mat.map = t;
+  }
+}
+
+// Preload AI textures at module load (page boot, before the title is dismissed).
+// Procedural placeholders cover the gap; failures keep them permanently.
+(['wall', 'floor', 'ceil'] as TexKind[]).forEach((kind) => {
+  const img = new Image();
+  img.onload = () => {
+    readyImgs[kind] = img;
+    upgradeTex(kind, img);
+  };
+  img.onerror = () =>
+    console.warn(`[textures] ${PNG_NAME[kind]} failed to load — keeping procedural`);
+  img.src = new URL(`textures/${PNG_NAME[kind]}`, document.baseURI).toString();
+});
