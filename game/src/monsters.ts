@@ -23,6 +23,14 @@ export interface Monster {
   attackCooldown: number;
   windup: number; // ticks remaining before a telegraphed bite lands (0 = none)
   alive: boolean;
+  // Per-frame animation state (owned by animateMonsters, the single writer
+  // of sprite position/scale — nothing else should touch them per-frame).
+  phase: number; // idle bob phase
+  hitT: number; // 1 → 0 hit-pop decay
+  lungeT: number; // 0 → 1 wind-up lunge ramp
+  stepT: number; // 1 → 0 hop decay after stepping
+  dying: number; // -1 = not dying, else seconds since death
+  gone: boolean; // fully removed from the scene
 }
 
 let nextId = 1;
@@ -133,6 +141,12 @@ function spawnKind(
       attackCooldown: 0,
       windup: 0,
       alive: true,
+      phase: Math.random() * 10,
+      hitT: 0,
+      lungeT: 0,
+      stepT: 0,
+      dying: -1,
+      gone: false,
     });
   }
   return out;
@@ -215,13 +229,86 @@ export function monsterTick(m: Monster, d: Dungeon, player: Cell, occupied: Set<
     occupied.delete(`${m.pos.x},${m.pos.y}`);
     m.pos = step;
     occupied.add(`${step.x},${step.y}`);
-    m.sprite.position.set(step.x * CELL, m.baseY + Math.random() * 0.15, step.y * CELL);
+    m.stepT = 1; // hop — the per-frame animator turns it into motion
   }
   return events;
 }
 
-export function killMonster(scene: THREE.Scene, m: Monster) {
+/** Start the death animation: sink + fade over ~0.55s, then removed. */
+export function killMonster(_scene: THREE.Scene, m: Monster) {
+  if (!m.alive || m.dying >= 0 || m.gone) return;
   m.alive = false;
-  scene.remove(m.sprite);
-  m.sprite.material.dispose();
+  m.dying = 0;
+  m.windup = 0;
+  m.hitT = 0;
+  m.lungeT = 0;
+}
+
+/** Instant removal for level teardown — no death animation. */
+export function destroyMonsters(scene: THREE.Scene, monsters: Monster[]) {
+  for (const m of monsters) {
+    if (m.gone) continue;
+    scene.remove(m.sprite);
+    (m.sprite.material as THREE.SpriteMaterial).dispose();
+    m.gone = true;
+  }
+  resetSpriteRegistry();
+}
+
+/** Idle motion character per kind: skittish, floaty, heavy. */
+const ANIM: Record<MonsterKind, { amp: number; speed: number }> = {
+  gibberling: { amp: 0.09, speed: 5.5 },
+  wraith: { amp: 0.16, speed: 1.6 },
+  chad: { amp: 0.06, speed: 2.2 },
+};
+
+/**
+ * Per-frame monster animation — the single writer of sprite position/scale.
+ * Idle bob + breathing, hop on step, lunge on wind-up, sink + fade on death.
+ */
+export function animateMonsters(
+  monsters: Monster[],
+  dt: number,
+  time: number,
+  player: Cell,
+  scene: THREE.Scene
+) {
+  for (const m of monsters) {
+    if (m.gone) continue;
+    const mat = m.sprite.material as THREE.SpriteMaterial;
+    if (m.dying >= 0) {
+      m.dying += dt;
+      const t = Math.min(1, m.dying / 0.55);
+      m.sprite.position.y -= dt * 2.2;
+      mat.opacity = 1 - t;
+      if (t >= 1) {
+        scene.remove(m.sprite);
+        mat.dispose();
+        m.gone = true;
+      }
+      continue;
+    }
+    if (!m.alive) continue;
+    const cfg = ANIM[m.kind];
+    m.hitT = Math.max(0, m.hitT - dt * 5);
+    m.stepT = Math.max(0, m.stepT - dt * 2.5);
+    const lungeTarget = m.windup > 0 ? 1 : 0;
+    const dl = lungeTarget - m.lungeT;
+    m.lungeT += Math.sign(dl) * Math.min(Math.abs(dl), dt * 3);
+    const le = m.lungeT * m.lungeT;
+    // Bob (+ hop while stepping), lunge toward the player on wind-up.
+    const bob = Math.sin(time * cfg.speed + m.phase) * cfg.amp * (1 + m.stepT * 1.5);
+    const dx = player.x - m.pos.x;
+    const dy = player.y - m.pos.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const lx = (dx / len) * CELL * 0.28 * le;
+    const lz = (dy / len) * CELL * 0.28 * le;
+    m.sprite.position.set(m.pos.x * CELL + lx, m.baseY + bob, m.pos.y * CELL + lz);
+    const s =
+      m.scale *
+      (1 + 0.03 * Math.sin(time * 2.2 + m.phase)) *
+      (1 + 0.28 * m.hitT) *
+      (1 + 0.16 * le);
+    m.sprite.scale.set(s, s, 1);
+  }
 }

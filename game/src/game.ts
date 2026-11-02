@@ -13,7 +13,7 @@ import {
   CellContent,
   EXIT,
 } from './dungeon';
-import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster, resetSpriteRegistry } from './monsters';
+import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster, destroyMonsters, animateMonsters } from './monsters';
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio } from './audio';
 import { initTouchControls, isTouchDevice } from './touch';
@@ -106,6 +106,7 @@ export class Game {
   private tween: Tween | null = null;
   private keys = new Set<string>();
   private tickTimer = 0;
+  private animTime = 0; // global clock for monster idle animation
   private bobPhase = 0;
   private over = false;
   private started = false;
@@ -242,8 +243,7 @@ export class Game {
     // Grace period: the labyrinth hasn't noticed you yet (~3s).
     this.graceUntil = performance.now() + 3000;
     this.occupied.clear();
-    for (const m of this.monsters) killMonster(this.renderer.scene, m);
-    resetSpriteRegistry(); // all level materials disposed above
+    destroyMonsters(this.renderer.scene, this.monsters); // instant teardown, no death anims
     this.monsters = spawnMonsters(this.renderer.scene, d, [
       d.start,
       ...roomCells(d),
@@ -434,10 +434,8 @@ export class Game {
     this.hud.hitFlash();
     this.hud.damageNumber(dmg);
     this.renderer.addShake(0.18);
-    // Knockback flash: scale pop.
-    const pop = m.scale * 1.25;
-    m.sprite.scale.set(pop, pop, 1);
-    setTimeout(() => m.sprite.scale.set(m.scale, m.scale, 1), 120);
+    // Knockback flash: scale pop (the per-frame animator owns sprite scale).
+    m.hitT = 1;
     if (m.hp <= 0) {
       killMonster(this.renderer.scene, m);
       this.occupied.delete(`${m.pos.x},${m.pos.y}`);
@@ -583,6 +581,20 @@ export class Game {
       }
     }
 
+    // Per-frame monster animation: idle bob, step hops, wind-up lunges,
+    // death sink + fade. Single writer of sprite position/scale.
+    this.animTime += dt;
+    animateMonsters(
+      this.monsters,
+      dt,
+      this.animTime,
+      { x: this.px, y: this.py },
+      this.renderer.scene
+    );
+    if (this.monsters.some((m) => m.gone)) {
+      this.monsters = this.monsters.filter((m) => !m.gone);
+    }
+
     // Monster ticks on a timer. Grace period: the labyrinth hasn't noticed you yet
     // — but the dead were already awake. Wraiths ignore the grace period.
     this.tickTimer += dt;
@@ -599,12 +611,7 @@ export class Game {
         const events = monsterTick(m, this.d, { x: this.px, y: this.py }, this.occupied);
         for (const e of events) {
           if (e === 'windup') {
-            // Telegraph: eyes flare (scale pop) + warning growl. Dodge by moving.
-            const wpop = m.scale * 1.3;
-            m.sprite.scale.set(wpop, wpop, 1);
-            setTimeout(() => {
-              if (m.alive) m.sprite.scale.set(m.scale, m.scale, 1);
-            }, 400);
+            // Telegraph: the lunge swells in the per-frame animator + warning growl. Dodge by moving.
             this.audio.growl(0.9);
             this.hud.log(windupBark(m));
           } else if (e.startsWith('hit:')) {
