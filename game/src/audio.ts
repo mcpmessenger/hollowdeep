@@ -7,6 +7,12 @@ export class GameAudio {
   private ambientNodes: OscillatorNode[] = [];
   private noiseBuf: AudioBuffer | null = null;
   private whisperBufs: Record<'far' | 'near', AudioBuffer | null> = { far: null, near: null };
+  private chadBufs: Record<'greet' | 'deal' | 'mock' | 'enrage', AudioBuffer | null> = {
+    greet: null,
+    deal: null,
+    mock: null,
+    enrage: null,
+  };
   private musicBus: GainNode | null = null;
   private musicTimer: number | null = null;
   private fireNodes: { src: AudioBufferSourceNode; timer: number } | null = null;
@@ -33,6 +39,14 @@ export class GameAudio {
           .then((ab) => this.ctx!.decodeAudioData(ab))
           .then((buf) => { this.whisperBufs[kind] = buf; })
           .catch((e) => console.warn('[audio] whisper preload failed:', e));
+      });
+      // Preload Chad's voiced dialogue lines. Same fire-and-forget pattern.
+      (['greet', 'deal', 'mock', 'enrage'] as const).forEach((kind) => {
+        fetch(new URL(`audio/chad-${kind}.mp3`, document.baseURI).toString())
+          .then((r) => { if (!r.ok) throw new Error(`chad ${kind}: ${r.status}`); return r.arrayBuffer(); })
+          .then((ab) => this.ctx!.decodeAudioData(ab))
+          .then((buf) => { this.chadBufs[kind] = buf; })
+          .catch((e) => console.warn('[audio] chad preload failed:', e));
       });
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -165,6 +179,21 @@ export class GameAudio {
       src.start(ctx.currentTime);
     }
     this.whisperBed(kind === 'near' ? 1.6 : 1);
+  }
+
+  /** Chad's voiced dialogue line. If the file hasn't loaded, the text still shows. */
+  chadVoice(kind: 'greet' | 'deal' | 'mock' | 'enrage') {
+    if (!this.ready) return;
+    const ctx = this.ctx!;
+    const buf = this.chadBufs[kind];
+    if (!buf) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 0.97 + Math.random() * 0.06;
+    const g = ctx.createGain();
+    g.gain.value = 1.0;
+    src.connect(g).connect(this.master!);
+    src.start(ctx.currentTime);
   }
 
   /** Wordless breathy bed under the spoken line (also the no-file fallback).

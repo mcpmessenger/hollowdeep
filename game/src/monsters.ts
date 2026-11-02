@@ -31,6 +31,8 @@ export interface Monster {
   stepT: number; // 1 → 0 hop decay after stepping
   dying: number; // -1 = not dying, else seconds since death
   gone: boolean; // fully removed from the scene
+  pacifiedUntil: number; // Chad: paid off — won't chase or bite until this timestamp
+  enragedUntil: number; // Chad: taunted — bites faster, takes +1 dmg until this timestamp
 }
 
 let nextId = 1;
@@ -147,12 +149,39 @@ function spawnKind(
       stepT: 0,
       dying: -1,
       gone: false,
+      pacifiedUntil: 0,
+      enragedUntil: 0,
     });
   }
   return out;
 }
 
-/** Depth-composed bestiary: gibberlings always, wraiths from depth 2, Chad from depth 3. */
+/** Test helper for the #chad hook: drop a Chad on a walkable cell near `near`. */
+export function spawnChadNear(
+  scene: THREE.Scene,
+  d: Dungeon,
+  near: Cell,
+  occupied: Set<string>
+): Monster | null {
+  const spawned = spawnKind(scene, d, 'chad', 1, [], 0);
+  const m = spawned[0];
+  if (!m) return null;
+  for (let r = 1; r <= 4; r++) {
+    for (let y = near.y - r; y <= near.y + r; y++) {
+      for (let x = near.x - r; x <= near.x + r; x++) {
+        if (Math.abs(x - near.x) + Math.abs(y - near.y) !== r) continue;
+        const k = `${x},${y}`;
+        if (!isWalkable(d, x, y) || occupied.has(k)) continue;
+        occupied.delete(`${m.pos.x},${m.pos.y}`);
+        m.pos = { x, y };
+        occupied.add(k);
+        m.sprite.position.set(x * CELL, m.baseY, y * CELL);
+        return m;
+      }
+    }
+  }
+  return m; // fallback: wherever it spawned
+}
 export function spawnMonsters(scene: THREE.Scene, d: Dungeon, avoid: Cell[]): Monster[] {
   const out: Monster[] = [];
   out.push(...spawnKind(scene, d, 'gibberling', 5 + d.level * 2, avoid));
@@ -177,15 +206,18 @@ export function monsterTick(m: Monster, d: Dungeon, player: Cell, occupied: Set<
   if (!m.alive) return events;
   m.attackCooldown = Math.max(0, m.attackCooldown - 1);
 
+  const now = Date.now();
+  const pacified = m.kind === 'chad' && now < m.pacifiedUntil;
+  const enraged = m.kind === 'chad' && now < m.enragedUntil;
   const dist = Math.abs(m.pos.x - player.x) + Math.abs(m.pos.y - player.y);
 
-  if (dist === 1) {
+  if (dist === 1 && !pacified) {
     // Adjacent: telegraphed bite. Wind up one tick (eyes flare, growl),
     // then bite on the next tick if the player is still there.
     if (m.windup > 0) {
       m.windup = 0;
       if (m.attackCooldown === 0) {
-        m.attackCooldown = 3; // ~1.65s between bites
+        m.attackCooldown = enraged ? 2 : 3; // enraged Chad bites faster
         events.push(`hit:${m.dmg}`);
       }
       return events;
@@ -200,7 +232,7 @@ export function monsterTick(m: Monster, d: Dungeon, player: Cell, occupied: Set<
   m.windup = 0;
 
   let step: Cell | null = null;
-  if (dist <= m.smell) {
+  if (!pacified && dist <= m.smell) {
     // Chase: pick neighbor minimizing distance.
     let best = dist;
     for (const dir of DIRS) {

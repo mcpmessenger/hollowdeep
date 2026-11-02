@@ -13,7 +13,20 @@ import {
   CellContent,
   EXIT,
 } from './dungeon';
-import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster, destroyMonsters, animateMonsters } from './monsters';
+import { Monster, MonsterKind, spawnMonsters, spawnChadNear, monsterTick, killMonster, destroyMonsters, animateMonsters } from './monsters';
+import {
+  CHAD_CHOICES,
+  ChadChoiceId,
+  DEAL_PRICE,
+  DEAL_DURATION_MS,
+  ENRAGE_DURATION_MS,
+  chadGreeting,
+  chadDealAccept,
+  chadDealMock,
+  chadTauntBack,
+  chadParting,
+  chadEnragedBark,
+} from './dialogue';
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio } from './audio';
 import { initTouchControls, isTouchDevice } from './touch';
@@ -46,14 +59,25 @@ function saveBest(b: Best) {
 
 /** Per-kind wind-up barks. Chad middle-manages his bites. */
 function windupBark(m: Monster): string {
-  if (m.kind === 'chad')
+  if (m.kind === 'chad') {
+    if (Date.now() < m.enragedUntil) return chadEnragedBark();
     return [
       'Chad schedules a mandatory bite.',
       'Chad wants to circle back… to your throat.',
       'Per my last email: RUN.',
-    ][(Math.random() * 3) | 0];
-  if (m.kind === 'wraith') return 'The Marrow Wraith inhales — like wind through ribs. Move!';
-  return 'The Gibberling rears back, eyes blazing — move!';
+      'Chad has added biting you to the sprint.',
+      "Let's take this offline — permanently.",
+    ][(Math.random() * 5) | 0];
+  }
+  if (m.kind === 'wraith')
+    return [
+      'The Marrow Wraith inhales — like wind through ribs. Move!',
+      'Cold fingers of air close around your throat. Move!',
+    ][(Math.random() * 2) | 0];
+  return [
+    'The Gibberling rears back, eyes blazing — move!',
+    'The Gibberling gibbers faster. That means bite. Move!',
+  ][(Math.random() * 2) | 0];
 }
 
 const DEATH_BARKS: Record<MonsterKind, string[]> = {
@@ -107,6 +131,7 @@ export class Game {
   private keys = new Set<string>();
   private tickTimer = 0;
   private animTime = 0; // global clock for monster idle animation
+  private chadTarget: Monster | null = null; // Chad currently in dialogue
   private bobPhase = 0;
   private over = false;
   private started = false;
@@ -192,6 +217,24 @@ export class Game {
       }, 800);
     }
 
+    // Test hook: #chad drops a Chad near spawn for dialogue verification.
+    if (location.hash === '#chad') {
+      setTimeout(() => {
+        document.getElementById('title')!.style.display = 'none';
+        this.started = true;
+        const m = spawnChadNear(
+          this.renderer.scene,
+          this.d,
+          { x: this.px, y: this.py },
+          this.occupied
+        );
+        if (m) {
+          this.monsters.push(m);
+          this.hud.log('Chad has entered the dungeon. Press T to talk.');
+          this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
+        }
+      }, 800);
+    }
     // Test hook: #lair teleports to Vess's study for visual verification.
     if (location.hash === '#lair') {
       setTimeout(() => {
@@ -212,7 +255,7 @@ export class Game {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       // Journal open = the delver is reading; the dungeon waits.
-      if (this.started && !this.over && !this.hud.isJournalOpen()) this.update(dt);
+      if (this.started && !this.over && !this.hud.isJournalOpen() && !this.hud.isDialogueOpen()) this.update(dt);
       this.renderer.update(dt);
       this.renderer.render();
       requestAnimationFrame(loop);
@@ -372,13 +415,37 @@ export class Game {
 
   private handleKey(k: string) {
     if (!this.started || this.over) return;
-    // The journal captures input while open.
-    if (k === 'j' || k === 'escape') {
-      if (this.hud.isJournalOpen()) this.hud.hideJournal();
-      else if (k === 'j') this.hud.showJournal(this.journal);
+    // Overlays capture input while open.
+    if (k === 'j' || k === 't' || k === 'escape') {
+      if (this.hud.isDialogueOpen()) {
+        if (k === 't' || k === 'escape') {
+          this.hud.hideDialogue();
+          this.chadTarget = null;
+        }
+        return;
+      }
+      if (this.hud.isJournalOpen()) {
+        if (k === 'j' || k === 'escape') this.hud.hideJournal();
+        return;
+      }
+      if (k === 'j') {
+        this.hud.showJournal(this.journal);
+        return;
+      }
+      if (k === 't') {
+        this.tryTalk();
+        return;
+      }
+      return; // escape with nothing open
+    }
+    if (this.hud.isJournalOpen() || this.hud.isDialogueOpen()) {
+      // Choice keys while Chad is talking.
+      if (k === '1') this.resolveChadChoice('deal');
+      else if (k === '2') this.resolveChadChoice('taunt');
+      else if (k === '3') this.resolveChadChoice('leave');
       return;
     }
-    if (this.hud.isJournalOpen() || this.tween) return;
+    if (this.tween) return;
     const [fx, fy] = this.forward();
     switch (k) {
       case 'w':
@@ -427,7 +494,8 @@ export class Game {
   }
 
   private attack(m: Monster) {
-    const dmg = 2 + ((Math.random() * 3) | 0); // 2–4
+    // Enraged Chad fights sloppy: +1 damage taken.
+    const dmg = 2 + ((Math.random() * 3) | 0) + (m.kind === 'chad' && Date.now() < m.enragedUntil ? 1 : 0);
     m.hp -= dmg;
     // Hit feedback: flash + shake + flinch pop + damage number.
     this.audio.hitFlesh();
@@ -458,6 +526,55 @@ export class Game {
     } else {
       this.hud.log(`You hit the ${m.name} for ${dmg}.`);
     }
+  }
+
+  /** Press T near Chad: open his dialogue. The dungeon pauses while you talk. */
+  private tryTalk() {
+    const chad = this.monsters.find(
+      (m) =>
+        m.kind === 'chad' &&
+        m.alive &&
+        Math.abs(m.pos.x - this.px) + Math.abs(m.pos.y - this.py) <= 4
+    );
+    if (!chad) {
+      this.hud.log('No one here wants to talk. (Chad lurks on depth 3+.)');
+      return;
+    }
+    this.chadTarget = chad;
+    this.hud.showChadDialogue(chadGreeting(), CHAD_CHOICES, (id) =>
+      this.resolveChadChoice(id as ChadChoiceId)
+    );
+    this.audio.chadVoice('greet');
+  }
+
+  /** One choice per opening — re-talk with T for another round. */
+  private resolveChadChoice(id: ChadChoiceId) {
+    const chad = this.chadTarget;
+    if (!chad || !chad.alive || !this.hud.isDialogueOpen()) return;
+    const now = Date.now();
+    if (id === 'deal') {
+      if (this.gold >= DEAL_PRICE) {
+        this.gold -= DEAL_PRICE;
+        this.hud.setGold(this.gold);
+        chad.pacifiedUntil = now + DEAL_DURATION_MS;
+        chad.windup = 0;
+        this.hud.showChadResponse(chadDealAccept());
+        this.audio.chadVoice('deal');
+        this.hud.log(`Chad pockets ${DEAL_PRICE} gold. No bites for 45 seconds.`);
+      } else {
+        this.hud.showChadResponse(chadDealMock());
+        this.audio.chadVoice('mock');
+        this.hud.log(`Chad wants ${DEAL_PRICE} gold. You have ${this.gold}.`);
+      }
+    } else if (id === 'taunt') {
+      chad.enragedUntil = now + ENRAGE_DURATION_MS;
+      this.hud.showChadResponse(chadTauntBack());
+      this.audio.chadVoice('enrage');
+      this.hud.log('Chad is ENRAGED — bites faster, but sloppy (+1 damage taken).');
+    } else {
+      this.hud.showChadResponse(chadParting());
+    }
+    this.chadTarget = null;
   }
 
   private search() {
