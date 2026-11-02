@@ -95,17 +95,20 @@ export class HUD {
     this.journalOpen = false;
   }
 
-  /** Chad dialogue. Toggle with T near him; 1/2/3 pick a choice. */
+  /** Generic dialogue overlay (Chad, Vess...). Toggle with T; 1/2/3 pick a choice. */
   isDialogueOpen(): boolean {
     return this.dialogueOpen;
   }
 
-  showChadDialogue(
-    greeting: string,
-    choices: Array<{ id: string; label: string }>,
-    onChoice: (id: string) => void
-  ) {
-    this.dialogueOnChoice = onChoice;
+  showDialogue(opts: {
+    name: string;
+    subtitle: string;
+    portraitUrl?: string;
+    greeting: string;
+    choices: Array<{ id: string; label: string }>;
+    onChoice: (id: string) => void;
+  }) {
+    this.dialogueOnChoice = opts.onChoice;
     const inner = document.createElement('div');
     inner.style.cssText =
       'max-width:560px;width:88vw;background:#14100b;border:1px solid #6b5320;' +
@@ -113,21 +116,24 @@ export class HUD {
       'box-shadow:0 0 60px rgba(0,0,0,0.9);';
     const head = document.createElement('div');
     head.style.cssText = 'display:flex;gap:18px;align-items:center;margin-bottom:16px;';
-    const img = document.createElement('img');
-    img.src = new URL('sprites/chad.png', document.baseURI).toString();
-    img.alt = 'Chad';
-    img.style.cssText = 'width:96px;height:96px;object-fit:cover;border:1px solid #6b5320;flex-shrink:0;';
+    if (opts.portraitUrl) {
+      const img = document.createElement('img');
+      img.src = opts.portraitUrl;
+      img.alt = opts.name;
+      img.style.cssText = 'width:96px;height:96px;object-fit:cover;border:1px solid #6b5320;flex-shrink:0;';
+      img.addEventListener('error', () => img.remove()); // graceful: no portrait, no box
+      head.appendChild(img);
+    }
     const name = document.createElement('div');
-    name.innerHTML = 'CHAD<br><span style="font-size:11px;letter-spacing:3px;color:#8a7648;">MIDDLE MANAGEMENT</span>';
+    name.innerHTML = `${opts.name}<br><span style="font-size:11px;letter-spacing:3px;color:#8a7648;">${opts.subtitle}</span>`;
     name.style.cssText = 'letter-spacing:4px;font-size:15px;color:#d8c690;';
-    head.appendChild(img);
     head.appendChild(name);
     inner.appendChild(head);
     const line = document.createElement('div');
-    line.textContent = greeting;
+    line.textContent = opts.greeting;
     line.style.cssText = 'font-style:italic;margin-bottom:20px;';
     inner.appendChild(line);
-    choices.forEach((c, i) => {
+    opts.choices.forEach((c, i) => {
       const btn = document.createElement('button');
       btn.textContent = `${i + 1}. ${c.label}`;
       btn.style.cssText =
@@ -140,7 +146,7 @@ export class HUD {
       inner.appendChild(btn);
     });
     const hint = document.createElement('div');
-    hint.textContent = '1 / 2 / 3 — CHOOSE · T / ESC — CLOSE';
+    hint.textContent = '1 / 2 / 3 / 4 — CHOOSE · T / ESC — CLOSE';
     hint.style.cssText = 'margin-top:20px;text-align:center;font-size:11px;letter-spacing:3px;color:#8a7648;';
     inner.appendChild(hint);
     this.dialogueEl.replaceChildren(inner);
@@ -148,18 +154,18 @@ export class HUD {
     this.dialogueOpen = true;
   }
 
-  /** Swap the choices for Chad's response line. */
-  showChadResponse(response: string) {
+  /** Swap the choices for the speaker's response line. */
+  showDialogueResponse(name: string, response: string) {
     this.dialogueOnChoice = null;
     const inner = document.createElement('div');
     inner.style.cssText =
       'max-width:560px;width:88vw;background:#14100b;border:1px solid #6b5320;' +
       'padding:28px 32px;color:#d8c690;font-size:15px;line-height:1.7;' +
       'box-shadow:0 0 60px rgba(0,0,0,0.9);';
-    const name = document.createElement('div');
-    name.textContent = 'CHAD';
-    name.style.cssText = 'letter-spacing:4px;font-size:13px;color:#8a7648;margin-bottom:16px;';
-    inner.appendChild(name);
+    const nameEl = document.createElement('div');
+    nameEl.textContent = name;
+    nameEl.style.cssText = 'letter-spacing:4px;font-size:13px;color:#8a7648;margin-bottom:16px;';
+    inner.appendChild(nameEl);
     const line = document.createElement('div');
     line.textContent = response;
     line.style.cssText = 'font-style:italic;margin-bottom:20px;';

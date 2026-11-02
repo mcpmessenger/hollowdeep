@@ -26,9 +26,17 @@ import {
   chadTauntBack,
   chadParting,
   chadEnragedBark,
+  VESS_CHOICES,
+  VessChoiceId,
+  VESS_EXIT_LINE,
+  VESS_ADVICE_LOWHP,
+  vessGreeting,
+  vessStory,
+  vessAdviceTip,
+  vessParting,
 } from './dialogue';
 import { HUD, visited, markVisited } from './hud';
-import { GameAudio } from './audio';
+import { GameAudio, VessVoiceKind } from './audio';
 import { initTouchControls, isTouchDevice } from './touch';
 import { journalPage } from './lore';
 
@@ -132,6 +140,7 @@ export class Game {
   private tickTimer = 0;
   private animTime = 0; // global clock for monster idle animation
   private chadTarget: Monster | null = null; // Chad currently in dialogue
+  private dialogueMode: 'chad' | 'vess' | null = null; // who the open dialogue is with
   private bobPhase = 0;
   private over = false;
   private started = false;
@@ -421,6 +430,7 @@ export class Game {
         if (k === 't' || k === 'escape') {
           this.hud.hideDialogue();
           this.chadTarget = null;
+          this.dialogueMode = null;
         }
         return;
       }
@@ -439,10 +449,17 @@ export class Game {
       return; // escape with nothing open
     }
     if (this.hud.isJournalOpen() || this.hud.isDialogueOpen()) {
-      // Choice keys while Chad is talking.
-      if (k === '1') this.resolveChadChoice('deal');
-      else if (k === '2') this.resolveChadChoice('taunt');
-      else if (k === '3') this.resolveChadChoice('leave');
+      // Choice keys while talking. Chad has 3 choices, Vess has 4.
+      if (this.dialogueMode === 'chad') {
+        if (k === '1') this.resolveChadChoice('deal');
+        else if (k === '2') this.resolveChadChoice('taunt');
+        else if (k === '3') this.resolveChadChoice('leave');
+      } else if (this.dialogueMode === 'vess') {
+        if (k === '1') this.resolveVessChoice('exit');
+        else if (k === '2') this.resolveVessChoice('story');
+        else if (k === '3') this.resolveVessChoice('advice');
+        else if (k === '4') this.resolveVessChoice('leave');
+      }
       return;
     }
     if (this.tween) return;
@@ -528,7 +545,7 @@ export class Game {
     }
   }
 
-  /** Press T near Chad: open his dialogue. The dungeon pauses while you talk. */
+  /** Press T: talk to Chad if he's near, else to Vess's echo if in her study. */
   private tryTalk() {
     const chad = this.monsters.find(
       (m) =>
@@ -536,15 +553,34 @@ export class Game {
         m.alive &&
         Math.abs(m.pos.x - this.px) + Math.abs(m.pos.y - this.py) <= 4
     );
-    if (!chad) {
-      this.hud.log('No one here wants to talk. (Chad lurks on depth 3+.)');
+    if (chad) {
+      this.chadTarget = chad;
+      this.dialogueMode = 'chad';
+      this.hud.showDialogue({
+        name: 'CHAD',
+        subtitle: 'MIDDLE MANAGEMENT',
+        portraitUrl: new URL('sprites/chad.png', document.baseURI).toString(),
+        greeting: chadGreeting(),
+        choices: CHAD_CHOICES,
+        onChoice: (id) => this.resolveChadChoice(id as ChadChoiceId),
+      });
+      this.audio.chadVoice('greet');
       return;
     }
-    this.chadTarget = chad;
-    this.hud.showChadDialogue(chadGreeting(), CHAD_CHOICES, (id) =>
-      this.resolveChadChoice(id as ChadChoiceId)
-    );
-    this.audio.chadVoice('greet');
+    if (inLair(this.d, this.px, this.py)) {
+      this.dialogueMode = 'vess';
+      this.hud.showDialogue({
+        name: 'VESS HOLLOWAY',
+        subtitle: 'CARTOGRAPHER-SCHOLAR · 50 YEARS GONE',
+        portraitUrl: new URL('sprites/vess.png', document.baseURI).toString(),
+        greeting: vessGreeting(),
+        choices: VESS_CHOICES,
+        onChoice: (id) => this.resolveVessChoice(id as VessChoiceId),
+      });
+      this.audio.vessVoice('greet');
+      return;
+    }
+    this.hud.log('No one here wants to talk. (Chad lurks on depth 3+; Vess in her study.)');
   }
 
   /** One choice per opening — re-talk with T for another round. */
@@ -558,23 +594,54 @@ export class Game {
         this.hud.setGold(this.gold);
         chad.pacifiedUntil = now + DEAL_DURATION_MS;
         chad.windup = 0;
-        this.hud.showChadResponse(chadDealAccept());
+        this.hud.showDialogueResponse('CHAD', chadDealAccept());
         this.audio.chadVoice('deal');
         this.hud.log(`Chad pockets ${DEAL_PRICE} gold. No bites for 45 seconds.`);
       } else {
-        this.hud.showChadResponse(chadDealMock());
+        this.hud.showDialogueResponse('CHAD', chadDealMock());
         this.audio.chadVoice('mock');
         this.hud.log(`Chad wants ${DEAL_PRICE} gold. You have ${this.gold}.`);
       }
     } else if (id === 'taunt') {
       chad.enragedUntil = now + ENRAGE_DURATION_MS;
-      this.hud.showChadResponse(chadTauntBack());
+      this.hud.showDialogueResponse('CHAD', chadTauntBack());
       this.audio.chadVoice('enrage');
       this.hud.log('Chad is ENRAGED — bites faster, but sloppy (+1 damage taken).');
     } else {
-      this.hud.showChadResponse(chadParting());
+      this.hud.showDialogueResponse('CHAD', chadParting());
     }
     this.chadTarget = null;
+    this.dialogueMode = null;
+  }
+
+  /** Vess's echo answers from the study. One question per opening. */
+  private resolveVessChoice(id: VessChoiceId) {
+    if (this.dialogueMode !== 'vess' || !this.hud.isDialogueOpen()) return;
+    if (id === 'exit') {
+      const dx = this.d.exit.x - this.px;
+      const dy = this.d.exit.y - this.py;
+      // Map north = decreasing y.
+      const dir =
+        Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'east' : 'west') : dy > 0 ? 'south' : 'north';
+      this.hud.showDialogueResponse('VESS HOLLOWAY', VESS_EXIT_LINE(dir));
+      this.audio.vessVoice(`exit-${dir}` as VessVoiceKind);
+      this.hud.log(`Vess points ${dir} — the way down breathes cold that way.`);
+    } else if (id === 'story') {
+      this.hud.showDialogueResponse('VESS HOLLOWAY', vessStory());
+      this.audio.vessVoice('story');
+    } else if (id === 'advice') {
+      if (this.hp < this.maxHp / 2) {
+        this.hud.showDialogueResponse('VESS HOLLOWAY', VESS_ADVICE_LOWHP);
+        this.audio.vessVoice('advice');
+      } else {
+        // Rotating tips are text-only — the voiced lines stay exact-matched.
+        this.hud.showDialogueResponse('VESS HOLLOWAY', vessAdviceTip());
+      }
+    } else {
+      this.hud.showDialogueResponse('VESS HOLLOWAY', vessParting());
+      this.audio.vessVoice('parting');
+    }
+    this.dialogueMode = null;
   }
 
   private search() {

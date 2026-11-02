@@ -62,6 +62,7 @@ const ACTIONS: Array<BtnDef & { act: string }> = [
   { label: '⟳', key: 'arrowright', act: 'tr' },
   { label: '⌕', key: 'f', act: 'srch' },
   { label: '📜', key: 'j', act: 'jrnl' },
+  { label: '💬', key: 't', act: 'talk' },
 ];
 
 export function initTouchControls(onPress: (key: string) => void): { show: () => void } {

@@ -1,6 +1,17 @@
 // Procedural WebAudio — every sound synthesized, zero assets.
 // Created/resumed on the DESCEND click (browser autoplay policy).
 
+/** Vess's voiced echo lines (audio/vess-*.mp3). */
+export type VessVoiceKind =
+  | 'greet'
+  | 'exit-north'
+  | 'exit-south'
+  | 'exit-east'
+  | 'exit-west'
+  | 'advice'
+  | 'story'
+  | 'parting';
+
 export class GameAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -12,6 +23,16 @@ export class GameAudio {
     deal: null,
     mock: null,
     enrage: null,
+  };
+  private vessBufs: Record<VessVoiceKind, AudioBuffer | null> = {
+    greet: null,
+    'exit-north': null,
+    'exit-south': null,
+    'exit-east': null,
+    'exit-west': null,
+    advice: null,
+    story: null,
+    parting: null,
   };
   private musicBus: GainNode | null = null;
   private musicTimer: number | null = null;
@@ -47,6 +68,14 @@ export class GameAudio {
           .then((ab) => this.ctx!.decodeAudioData(ab))
           .then((buf) => { this.chadBufs[kind] = buf; })
           .catch((e) => console.warn('[audio] chad preload failed:', e));
+      });
+      // Preload Vess's voiced echo lines. Same fire-and-forget pattern.
+      (['greet', 'exit-north', 'exit-south', 'exit-east', 'exit-west', 'advice', 'story', 'parting'] as VessVoiceKind[]).forEach((kind) => {
+        fetch(new URL(`audio/vess-${kind}.mp3`, document.baseURI).toString())
+          .then((r) => { if (!r.ok) throw new Error(`vess ${kind}: ${r.status}`); return r.arrayBuffer(); })
+          .then((ab) => this.ctx!.decodeAudioData(ab))
+          .then((buf) => { this.vessBufs[kind] = buf; })
+          .catch((e) => console.warn('[audio] vess preload failed:', e));
       });
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -192,6 +221,21 @@ export class GameAudio {
     src.playbackRate.value = 0.97 + Math.random() * 0.06;
     const g = ctx.createGain();
     g.gain.value = 1.0;
+    src.connect(g).connect(this.master!);
+    src.start(ctx.currentTime);
+  }
+
+  /** Vess's voiced echo line. If the file hasn't loaded, the text still shows. */
+  vessVoice(kind: VessVoiceKind) {
+    if (!this.ready) return;
+    const ctx = this.ctx!;
+    const buf = this.vessBufs[kind];
+    if (!buf) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 0.97 + Math.random() * 0.06;
+    const g = ctx.createGain();
+    g.gain.value = 0.9;
     src.connect(g).connect(this.master!);
     src.start(ctx.currentTime);
   }

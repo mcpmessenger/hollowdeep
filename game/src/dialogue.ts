@@ -61,3 +61,53 @@ export const chadDealMock = () => pick(CHAD_DEAL_MOCK);
 export const chadTauntBack = () => pick(CHAD_TAUNT_BACK);
 export const chadParting = () => pick(CHAD_PARTING);
 export const chadEnragedBark = () => pick(CHAD_ENRAGED_BARKS);
+
+// ---------------------------------------------------------------------------
+// Vess's echo — press T inside her study. She answers contextually:
+// the way down, her story, advice. Same overlay as Chad; the voiced lines
+// live in audio/vess-*.mp3 (ElvenWizard whisper-voice).
+// ---------------------------------------------------------------------------
+
+export type VessChoiceId = 'exit' | 'story' | 'advice' | 'leave';
+
+export const VESS_CHOICES: Array<{ id: VessChoiceId; label: string }> = [
+  { id: 'exit', label: '"Where is the way down?"' },
+  { id: 'story', label: '"What happened to you?"' },
+  { id: 'advice', label: '"Any advice?"' },
+  { id: 'leave', label: '"Leave her echo."' },
+];
+
+export const VESS_GREETINGS = [
+  'Little cartographer... you walk my maps. Ask, and the echo answers.',
+  'Another one, come down. The fire remembers you. Ask.',
+];
+
+export const VESS_EXIT_LINE = (dir: 'north' | 'south' | 'east' | 'west') =>
+  `The way down breathes cold from the ${dir}. Follow it.`;
+
+export const VESS_STORY = [
+  'Fifty years I mapped. The walls breathed, and I loved them before they decided about me.',
+  'The gibberlings were my first naming. Everything down here was unnamed — so I named it all.',
+  'On the fourth depth I understood: the gut rearranges because the god dreams. I am its favorite dream.',
+  'I stopped writing at nine. Not because I died, love. Because I arrived.',
+];
+
+export const VESS_ADVICE_LOWHP =
+  'You bleed. My tonic waits on the table — take it, and go down whole.';
+
+export const VESS_ADVICE_TIPS = [
+  'Search the dead ends, love. The dungeon hides its kindness there.',
+  'The wraiths smell you from nine cells off. Keep moving; never linger.',
+  'Chad can be bought. Everyone down here has a price — his is twenty-five.',
+  'The god dreams your routes before you walk them. Walk anyway.',
+];
+
+export const VESS_PARTING = [
+  'Go. The god dreams, and I am its favorite dream.',
+  'Down, little cartographer. Leave the fire lit.',
+];
+
+export const vessGreeting = () => pick(VESS_GREETINGS);
+export const vessStory = () => pick(VESS_STORY);
+export const vessAdviceTip = () => pick(VESS_ADVICE_TIPS);
+export const vessParting = () => pick(VESS_PARTING);
