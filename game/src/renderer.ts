@@ -185,22 +185,23 @@ export class DungeonRenderer {
     mantel.rotation.y = hearth.rotation.y;
     group.add(mantel);
 
-    // Flames: crossed emissive planes in front of the firebox opening
-    // (hearth front face sits at 1.1 out — the flames must clear it).
+    // Flames: crossed additive flame-sprite planes in front of the firebox
+    // opening (hearth front face sits at 1.1 out — the flames must clear it).
     const flames: THREE.Mesh[] = [];
+    const flameTex = this.makeFlameTexture();
     const firePos = { x: hx - dirVec.x * 0.62, z: hz - dirVec.z * 0.62 };
     for (let i = 0; i < 3; i++) {
       const flame = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.55, 0.9),
+        new THREE.PlaneGeometry(0.7, 1.1),
         new THREE.MeshBasicMaterial({
-          color: i === 0 ? 0xffd27a : 0xff8830,
+          map: flameTex,
           transparent: true,
-          opacity: 0.9,
           side: THREE.DoubleSide,
           depthWrite: false,
+          blending: THREE.AdditiveBlending,
         })
       );
-      flame.position.set(firePos.x, 0.75, firePos.z);
+      flame.position.set(firePos.x, 0.85, firePos.z);
       flame.rotation.y = (i * Math.PI) / 3;
       group.add(flame);
       flames.push(flame);
@@ -323,6 +324,33 @@ export class DungeonRenderer {
 
     this.scene.add(group);
     this.lair = { group, fireLight, flames, embers, emberVel: evel, phase: Math.random() * 10 };
+  }
+
+  /** Teardrop flame sprite: hot core → transparent tip, for additive planes. */
+  private makeFlameTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 128;
+    const g = c.getContext('2d')!;
+    const layers: Array<[number, number, number, number, string]> = [
+      // [cx, cy, rx, ry, color]
+      [32, 96, 26, 30, 'rgba(255, 90, 20, 0.55)'], // outer orange body
+      [32, 100, 17, 22, 'rgba(255, 150, 40, 0.75)'], // mid
+      [32, 104, 10, 14, 'rgba(255, 220, 120, 0.9)'], // hot core
+      [32, 58, 12, 28, 'rgba(255, 120, 30, 0.45)'], // licking tip
+    ];
+    for (const [cx, cy, rx, ry, color] of layers) {
+      const grad = g.createRadialGradient(cx, cy, 1, cx, cy, Math.max(rx, ry));
+      grad.addColorStop(0, color);
+      grad.addColorStop(1, 'rgba(255, 80, 10, 0)');
+      g.fillStyle = grad;
+      g.beginPath();
+      g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
   }
 
   /** Procedural book-spine texture for the shelf front. */
