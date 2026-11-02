@@ -181,6 +181,21 @@ export class Game {
       }, 800);
     }
 
+    // Test hook: #lair teleports to Vess's study for visual verification.
+    if (location.hash === '#lair') {
+      setTimeout(() => {
+        document.getElementById('title')!.style.display = 'none';
+        this.started = true;
+        this.px = this.d.lair.x;
+        this.py = this.d.lair.y;
+        this.dir = 1;
+        markVisited(this.d, this.px, this.py);
+        this.renderer.setView(this.px, this.py, this.dir);
+        this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
+        this.hud.log("Vess's study. Dust, old paper — and a fire that never goes out.");
+      }, 800);
+    }
+
     let last = performance.now();
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
