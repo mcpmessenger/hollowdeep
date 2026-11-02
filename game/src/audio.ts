@@ -7,6 +7,8 @@ export class GameAudio {
   private ambientNodes: OscillatorNode[] = [];
   private noiseBuf: AudioBuffer | null = null;
   private whisperBufs: Record<'far' | 'near', AudioBuffer | null> = { far: null, near: null };
+  private musicBus: GainNode | null = null;
+  private musicTimer: number | null = null;
 
   /** Call from a user gesture. Safe to call repeatedly. */
   unlock() {
@@ -242,5 +244,96 @@ export class GameAudio {
     g.connect(this.master!);
     lfo.start();
     this.ambientNodes.push(lfo);
+  }
+
+  // ---- generative music ----
+
+  /** Dark ambient in D natural minor: sparse singing-bowl bells through a
+   *  spacious feedback delay, with an occasional deep pulse. Generative —
+   *  no two descents sound the same. Sits under the SFX. */
+  startMusic() {
+    if (!this.ready || this.musicTimer !== null) return;
+    const ctx = this.ctx!;
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = 0.5;
+    // Spacious dungeon: feedback delay on the music bus.
+    const delay = ctx.createDelay(1.0);
+    delay.delayTime.value = 0.42;
+    const fb = ctx.createGain();
+    fb.gain.value = 0.38;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.35;
+    this.musicBus.connect(this.master!);
+    this.musicBus.connect(delay);
+    delay.connect(fb);
+    fb.connect(delay);
+    delay.connect(wet);
+    wet.connect(this.master!);
+    this.scheduleNote();
+  }
+
+  private scheduleNote() {
+    if (!this.ready || !this.musicBus) return;
+    // D natural minor, weighted toward tonic + fifth + fourth.
+    const scale = [146.83, 164.81, 174.61, 196.0, 220.0, 233.08, 261.63, 293.66];
+    const weights = [3, 1, 2, 2, 3, 1, 2, 1];
+    let total = 0;
+    for (const w of weights) total += w;
+    let r = Math.random() * total;
+    let freq = scale[0];
+    for (let i = 0; i < scale.length; i++) {
+      r -= weights[i];
+      if (r <= 0) { freq = scale[i]; break; }
+    }
+    this.bell(freq);
+    // Sometimes answer the bell with a deep pulse.
+    if (Math.random() < 0.3) this.drum();
+    // Rarely, two bells close together — a phrase.
+    if (Math.random() < 0.25) {
+      const second = scale[Math.floor(Math.random() * scale.length)];
+      window.setTimeout(() => this.bell(second), 1400 + Math.random() * 1200);
+    }
+    const next = 4000 + Math.random() * 6000;
+    this.musicTimer = window.setTimeout(() => this.scheduleNote(), next);
+  }
+
+  /** Singing-bowl bell: sine + inharmonic partials, slow bloom, long decay. */
+  private bell(freq: number) {
+    if (!this.ready || !this.musicBus) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.14, t + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 5);
+    const partials: Array<[number, number]> = [[1, 1], [2.76, 0.32], [5.4, 0.1]];
+    for (const [mult, amp] of partials) {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = freq * mult * (1 + (Math.random() - 0.5) * 0.002);
+      const og = ctx.createGain();
+      og.gain.value = amp;
+      o.connect(og).connect(g);
+      o.start(t);
+      o.stop(t + 5.2);
+    }
+    g.connect(this.musicBus);
+  }
+
+  /** Deep pulse under the bells — the god's heartbeat, maybe. */
+  private drum() {
+    if (!this.ready || !this.musicBus) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(58, t);
+    o.frequency.exponentialRampToValueAtTime(36, t + 0.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    o.connect(g).connect(this.musicBus);
+    o.start(t);
+    o.stop(t + 1.3);
   }
 }

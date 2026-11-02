@@ -117,6 +117,7 @@ export class Game {
       if (this.started) return;
       this.audio.unlock(); // user gesture — safe to start audio
       this.audio.startAmbient();
+      this.audio.startMusic();
       titleEl.style.display = 'none';
       this.started = true;
       showTouch?.();
