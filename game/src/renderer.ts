@@ -385,13 +385,13 @@ export class DungeonRenderer {
       const g = GDIR[dw.dir]; // grid-space {x, y}
       const bx = (dw.x + g.x * 0.5) * CELL;
       const bz = (dw.y + g.y * 0.5) * CELL;
-      const arch = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.3, 10, 20, Math.PI), stoneMat);
-      arch.position.set(bx, 0.25, bz);
+      const arch = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.3, 10, 20, Math.PI), stoneMat);
+      arch.position.set(bx, 1.5, bz);
       arch.rotation.y = Math.atan2(v.x, v.z);
       group.add(arch);
       for (const s of [-1, 1]) {
-        const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.55, 2.4, 0.55), stoneMat);
-        jamb.position.set(bx + -v.z * s * 1.9, 1.2, bz + v.x * s * 1.9);
+        const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.5, 0.55), stoneMat);
+        jamb.position.set(bx + -v.z * s * 1.5, 0.75, bz + v.x * s * 1.5);
         group.add(jamb);
       }
     }
