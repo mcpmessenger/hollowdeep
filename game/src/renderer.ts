@@ -7,6 +7,20 @@ import { makeTextures, TextureSet, registerTexMat, resetTexRegistry } from './te
 export const CELL = 4; // world units per grid cell
 const WALL_H = 4;
 
+/** One drifting smoke puff — a sprite that rises, grows, and fades. */
+interface SmokePuff {
+  sprite: THREE.Sprite;
+  life: number;
+  maxLife: number;
+  vy: number;
+  baseX: number;
+  baseY: number;
+  baseZ: number;
+  grow: number;
+  maxOp: number;
+  drift: number;
+}
+
 export class DungeonRenderer {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -29,8 +43,10 @@ export class DungeonRenderer {
     bubVel: Float32Array;
     brewMat: THREE.MeshStandardMaterial;
     coalLight: THREE.PointLight;
+    smoke: SmokePuff[];
     phase: number;
   } | null = null;
+  private smokeTex: THREE.CanvasTexture | null = null;
 
   /** Screen shake — call on hits/bites. Decays automatically, leaves no drift. */
   addShake(n: number) {
@@ -147,6 +163,7 @@ export class DungeonRenderer {
     // disposed (they belong to textures.ts); per-level canvas textures are.
     if (this.lair) {
       const sharedMaps = new Set(Object.values(this.textures));
+      if (this.smokeTex) sharedMaps.add(this.smokeTex);
       this.scene.remove(this.lair.group);
       this.lair.group.traverse((o) => {
         const mesh = o as THREE.Mesh;
@@ -373,6 +390,13 @@ export class DungeonRenderer {
     );
     group.add(bubbles);
 
+    // Smoke: green wisps off the brew, grey smoke off the fireplace.
+    if (!this.smokeTex) this.smokeTex = this.makeSmokeTexture();
+    const smoke: SmokePuff[] = [
+      ...this.makeSmoke(10, ccx, 1.15, ccz, 0x4dff6a, 0.42, 0.45, 1.2, group),
+      ...this.makeSmoke(10, firePos.x, 1.35, firePos.z, 0x8a8a8a, 0.3, 0.55, 1.7, group),
+    ];
+
     // -- Arched doorways: half-torus stone arches + jambs over each opening --
     const GDIR = [
       { x: 0, y: -1 },
@@ -423,8 +447,72 @@ export class DungeonRenderer {
       bubVel: bvel,
       brewMat,
       coalLight,
+      smoke,
       phase: Math.random() * 10,
     };
+  }
+
+  /** Soft radial blob texture, tinted per smoke system via sprite color. */
+  private makeSmokeTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(32, 32, 2, 32, 32, 30);
+    grad.addColorStop(0, 'rgba(255,255,255,0.85)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.32)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  }
+
+  private resetPuff(p: SmokePuff, stagger = false) {
+    p.life = stagger ? Math.random() * p.maxLife : 0;
+    p.sprite.position.set(
+      p.baseX + (Math.random() - 0.5) * 0.4,
+      p.baseY,
+      p.baseZ + (Math.random() - 0.5) * 0.4
+    );
+  }
+
+  private makeSmoke(
+    n: number,
+    x: number,
+    y: number,
+    z: number,
+    color: number,
+    maxOp: number,
+    vy: number,
+    grow: number,
+    group: THREE.Group
+  ): SmokePuff[] {
+    const out: SmokePuff[] = [];
+    for (let i = 0; i < n; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: this.smokeTex!,
+        color,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(mat);
+      const p: SmokePuff = {
+        sprite,
+        life: 0,
+        maxLife: 2.2 + Math.random() * 1.6,
+        vy: vy * (0.8 + Math.random() * 0.4),
+        baseX: x,
+        baseY: y,
+        baseZ: z,
+        grow,
+        maxOp,
+        drift: Math.random() * 10,
+      };
+      this.resetPuff(p, true);
+      group.add(sprite);
+      out.push(p);
+    }
+    return out;
   }
 
   /** Teardrop flame sprite: hot core → transparent tip, for additive planes. */
@@ -536,6 +624,20 @@ export class DungeonRenderer {
       bp.needsUpdate = true;
       L.brewMat.emissiveIntensity = 1.1 + Math.sin(L.phase * 2.4) * 0.35;
       L.coalLight.intensity = 10 + Math.sin(L.phase * 7 + 1) * 2.5;
+      // Smoke puffs: rise, grow, fade, recycle.
+      for (const p of L.smoke) {
+        p.life += dt;
+        if (p.life >= p.maxLife) {
+          this.resetPuff(p);
+          continue;
+        }
+        const t = p.life / p.maxLife;
+        p.sprite.position.y += p.vy * dt;
+        p.sprite.position.x += Math.sin(L.phase * 2 + p.drift) * dt * 0.3;
+        const sc = 0.5 + t * p.grow;
+        p.sprite.scale.set(sc, sc, 1);
+        (p.sprite.material as THREE.SpriteMaterial).opacity = p.maxOp * (1 - t);
+      }
     }
     // Screen shake: remove last frame's offset, apply a fresh decaying one.
     this.camera.position.x -= this.lastShakeX;
