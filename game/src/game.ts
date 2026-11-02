@@ -14,6 +14,7 @@ import {
 import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster, resetSpriteRegistry } from './monsters';
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio } from './audio';
+import { initTouchControls, isTouchDevice } from './touch';
 
 interface Best {
   depth: number;
@@ -108,12 +109,17 @@ export class Game {
     this.newLevel(this.d, true);
 
     const titleEl = document.getElementById('title')!;
+    let showTouch: (() => void) | null = null;
+    if (isTouchDevice()) {
+      showTouch = initTouchControls((k) => this.press(k)).show;
+    }
     const dismissTitle = () => {
       if (this.started) return;
       this.audio.unlock(); // user gesture — safe to start audio
       this.audio.startAmbient();
       titleEl.style.display = 'none';
       this.started = true;
+      showTouch?.();
       this.hud.log('You descend into the Hollowdeep.');
       this.hud.log('Find the shaft of blue light. Go down.');
     };
@@ -318,6 +324,11 @@ export class Game {
       [0, 1],
       [-1, 0],
     ][this.dir] as [number, number];
+  }
+
+  /** Touch controls + autotest feed through here — same discrete path as keys. */
+  press(k: string) {
+    this.handleKey(k);
   }
 
   private handleKey(k: string) {
