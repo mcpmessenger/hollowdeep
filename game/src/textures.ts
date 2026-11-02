@@ -100,6 +100,53 @@ function ceiling(): HTMLCanvasElement {
   return c;
 }
 
+/** Dark aged wood — furniture fallback until wood.png lands. */
+function darkWood(): HTMLCanvasElement {
+  const S = 256;
+  const [c, ctx] = canvas(S);
+  noise(ctx, S, '#241a10', 26);
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = 3;
+  for (let r = 0; r <= 4; r++) {
+    const y = (r * S) / 4;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(S, y);
+    ctx.stroke();
+  }
+  // grain streaks
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 40; i++) {
+    const y = Math.random() * S;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(S * 0.3, y + 4, S * 0.6, y - 4, S, y);
+    ctx.stroke();
+  }
+  return c;
+}
+
+/** Hammered iron — cauldron fallback until iron.png lands. */
+function ironTex(): HTMLCanvasElement {
+  const S = 256;
+  const [c, ctx] = canvas(S);
+  noise(ctx, S, '#1c1c20', 30);
+  for (let i = 0; i < 60; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const r = 6 + Math.random() * 14;
+    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+    g.addColorStop(0, 'rgba(90,80,70,0.25)');
+    g.addColorStop(1, 'rgba(0,0,0,0.35)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 7);
+    ctx.fill();
+  }
+  return c;
+}
+
 /** A gibberling: dark furball with too many eyes. Drawn, not modeled. */
 export function gibberlingSprite(): HTMLCanvasElement {
   const S = 128;
@@ -273,6 +320,8 @@ export interface TextureSet {
   wall: THREE.CanvasTexture;
   floor: THREE.CanvasTexture;
   ceil: THREE.CanvasTexture;
+  wood: THREE.CanvasTexture;
+  iron: THREE.CanvasTexture;
 }
 
 export function makeTextures(): TextureSet {
@@ -280,6 +329,8 @@ export function makeTextures(): TextureSet {
     wall: toTexture(stoneWall()),
     floor: toTexture(flagstone(), 1),
     ceil: toTexture(ceiling()),
+    wood: toTexture(darkWood()),
+    iron: toTexture(ironTex()),
   };
   liveSet = set;
   // PNGs that beat the constructor get applied now.
@@ -295,6 +346,8 @@ const PNG_NAME: Record<TexKind, string> = {
   wall: 'wall.png',
   floor: 'floor.png',
   ceil: 'ceiling.png',
+  wood: 'wood.png',
+  iron: 'iron.png',
 };
 
 /** Materials currently using a texture, so the PNG swap hits live geometry. */
@@ -328,7 +381,7 @@ function upgradeTex(kind: TexKind, img: HTMLImageElement) {
 
 // Preload AI textures at module load (page boot, before the title is dismissed).
 // Procedural placeholders cover the gap; failures keep them permanently.
-(['wall', 'floor', 'ceil'] as TexKind[]).forEach((kind) => {
+(['wall', 'floor', 'ceil', 'wood', 'iron'] as TexKind[]).forEach((kind) => {
   const img = new Image();
   img.onload = () => {
     readyImgs[kind] = img;

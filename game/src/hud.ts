@@ -173,12 +173,12 @@ export class HUD {
       ctx.arc((m.pos.x + 0.5) * cell, (m.pos.y + 0.5) * cell, cell * (m.kind === 'chad' ? 0.45 : 0.3), 0, 7);
       ctx.fill();
     }
-    // Vess's study — a warm ember dot once you've seen the cell.
-    if (seen.has(`${d.lair.x},${d.lair.y}`)) {
+    // Vess's study — a warm ember dot once you've seen the room's heart.
+    if (seen.has(`${d.lair.cx},${d.lair.cy}`)) {
       ctx.fillStyle = '#ff9030';
       ctx.fillRect(
-        (d.lair.x + 0.28) * cell,
-        (d.lair.y + 0.28) * cell,
+        (d.lair.cx + 0.28) * cell,
+        (d.lair.cy + 0.28) * cell,
         cell * 0.44,
         cell * 0.44
       );

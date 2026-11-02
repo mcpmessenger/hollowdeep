@@ -10,12 +10,28 @@ export interface Cell {
   y: number;
 }
 
-/** Vess Holloway's study — one anchor cell per depth holding all furniture. */
-export interface Lair {
+export interface Doorway {
   x: number;
   y: number;
-  /** direction the fireplace is built into (0=N,1=E,2=S,3=W); always a wall */
-  fireDir: number;
+  /** outward direction from the room (0=N,1=E,2=S,3=W) */
+  dir: number;
+}
+
+/** Vess's study, carved as a real 5x5 chamber in the maze. */
+export interface Lair {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number; // inclusive rect
+  cx: number;
+  cy: number; // room center cell
+  fireDir: number; // fireplace wall side (fewest doorways)
+  doorways: Doorway[];
+  /** furniture cells (blocked for movement) */
+  hearth: Cell;
+  shelf: Cell;
+  table: Cell;
+  cauldron: Cell;
 }
 
 export type CellContent = 'gold' | 'trap' | 'lore' | 'bandage' | null;
@@ -30,8 +46,10 @@ export interface Dungeon {
   searched: Set<string>;
   level: number;
   lair: Lair;
-  /** lair loot taken this level: 'shelf' (journal) and/or 'table' (tonic) */
+  /** lair loot taken this level: 'shelf' (journal), 'table' (tonic), 'cauldron' (brew) */
   lairTaken: Set<string>;
+  /** furniture cells — not walkable */
+  blocked: Set<string>;
 }
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -80,14 +98,29 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
 
   const start: Cell = { x: 1, y: 1 };
 
-  // Exit = farthest floor cell from start (BFS).
+  // Vess's study: carve a 5x5 chamber into the maze. Opening walls can never
+  // disconnect the dungeon, so connectivity is preserved.
+  const RW = 5;
+  const RH = 5;
+  const rx = 2 + ((Math.random() * (size - RW - 4)) | 0);
+  const ry = 2 + ((Math.random() * (size - RH - 4)) | 0);
+  for (let y = ry; y < ry + RH; y++)
+    for (let x = rx; x < rx + RW; x++) grid[y][x] = FLOOR;
+  const inRoom = (x: number, y: number) =>
+    x >= rx && x < rx + RW && y >= ry && y < ry + RH;
+
+  // Exit = farthest floor cell from start (BFS), never inside the study.
   const dist: number[][] = Array.from({ length: size }, () => Array(size).fill(-1));
   const q: Cell[] = [start];
   dist[start.y][start.x] = 0;
   let exit: Cell = start;
+  let exitD = -1;
   while (q.length) {
     const c = q.shift()!;
-    exit = c;
+    if (!inRoom(c.x, c.y) && dist[c.y][c.x] > exitD) {
+      exitD = dist[c.y][c.x];
+      exit = c;
+    }
     for (const d of [
       { x: 1, y: 0 },
       { x: -1, y: 0 },
@@ -104,12 +137,13 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
   }
   grid[exit.y][exit.x] = EXIT;
 
-  // Scatter searchable content on floor cells (not start/exit).
+  // Scatter searchable content on floor cells (not start/exit, not the study).
   const contents = new Map<string, CellContent>();
   const floorCells: Cell[] = [];
   for (let y = 1; y < size - 1; y++)
     for (let x = 1; x < size - 1; x++)
-      if (grid[y][x] === FLOOR && !(x === start.x && y === start.y)) floorCells.push({ x, y });
+      if (grid[y][x] === FLOOR && !(x === start.x && y === start.y) && !inRoom(x, y))
+        floorCells.push({ x, y });
   const count = Math.min(floorCells.length, 6 + level * 2);
   for (let i = 0; i < count; i++) {
     const c = floorCells.splice((Math.random() * floorCells.length) | 0, 1)[0];
@@ -133,49 +167,55 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
   if (nearDeadEnds[0]) contents.set(key(nearDeadEnds[0].c.x, nearDeadEnds[0].c.y), 'gold');
   if (nearDeadEnds[1]) contents.set(key(nearDeadEnds[1].c.x, nearDeadEnds[1].c.y), 'bandage');
 
-  // Vess's study: an anchor cell mid-depth (BFS 8–22 from start), never the
-  // exit, with at least one adjacent wall for the fireplace. All furniture
-  // lives in this one cell, arranged around its walls.
+  // Vess's study: the carved chamber becomes the lair. Doorways are room-edge
+  // cells with a corridor beyond; the fireplace takes the side with the
+  // fewest doorways. Furniture cells are blocked for movement.
   const DIRS = [
     { x: 0, y: -1 },
     { x: 1, y: 0 },
     { x: 0, y: 1 },
     { x: -1, y: 0 },
   ];
-  const hasWallNeighbor = (x: number, y: number) =>
-    DIRS.some((d) => grid[y + d.y] && grid[y + d.y][x + d.x] === WALL);
-  const candidates: Cell[] = [];
-  for (let y = 1; y < size - 1; y++)
-    for (let x = 1; x < size - 1; x++) {
-      if (grid[y][x] !== FLOOR) continue;
-      if (x === exit.x && y === exit.y) continue;
-      if (dist[y][x] < 8 || dist[y][x] > 22) continue;
-      if (!hasWallNeighbor(x, y)) continue;
-      candidates.push({ x, y });
-    }
-  let anchor: Cell | null = candidates.length
-    ? candidates[(Math.random() * candidates.length) | 0]
-    : null;
-  if (!anchor) {
-    // Fallback: farthest non-exit floor cell with a wall neighbor.
-    let best = -1;
-    for (let y = 1; y < size - 1; y++)
-      for (let x = 1; x < size - 1; x++) {
-        if (grid[y][x] !== FLOOR || (x === exit.x && y === exit.y)) continue;
-        if (!hasWallNeighbor(x, y)) continue;
-        if (dist[y][x] > best) {
-          best = dist[y][x];
-          anchor = { x, y };
-        }
-      }
+  const doorways: Doorway[] = [];
+  for (let x = rx; x < rx + RW; x++) {
+    if (grid[ry - 1][x] === FLOOR) doorways.push({ x, y: ry, dir: 0 });
+    if (grid[ry + RH][x] === FLOOR) doorways.push({ x, y: ry + RH - 1, dir: 2 });
   }
-  if (!anchor) anchor = { ...start }; // degenerate; never happens on 15x15
-  const fireDir = DIRS.findIndex(
-    (d) => grid[anchor!.y + d.y] && grid[anchor!.y + d.y][anchor!.x + d.x] === WALL
-  );
-  const lair: Lair = { x: anchor.x, y: anchor.y, fireDir: fireDir === -1 ? 0 : fireDir };
+  for (let y = ry; y < ry + RH; y++) {
+    if (grid[y][rx - 1] === FLOOR) doorways.push({ x: rx, y, dir: 3 });
+    if (grid[y][rx + RW] === FLOOR) doorways.push({ x: rx + RW - 1, y, dir: 1 });
+  }
+  const dwCount = [0, 0, 0, 0];
+  for (const dw of doorways) dwCount[dw.dir]++;
+  let fireDir = 0;
+  for (let d = 1; d < 4; d++) if (dwCount[d] < dwCount[fireDir]) fireDir = d;
 
-  return { size, grid, start, exit, contents, searched: new Set(), level, lair, lairTaken: new Set() };
+  const cx = rx + 2;
+  const cy = ry + 2;
+  const fv = DIRS[fireDir]; // toward the fireplace wall
+  const rv = { x: -fv.y, y: fv.x }; // 90° clockwise (bookshelf side)
+  const hearth: Cell = { x: cx + fv.x * 2, y: cy + fv.y * 2 };
+  const shelf: Cell = { x: cx + rv.x * 2, y: cy + rv.y * 2 };
+  const table: Cell = { x: cx - fv.x, y: cy - fv.y };
+  const cauldron: Cell = { x: cx + rv.x + fv.x, y: cy + rv.y + fv.y };
+  const lair: Lair = {
+    x0: rx,
+    y0: ry,
+    x1: rx + RW - 1,
+    y1: ry + RH - 1,
+    cx,
+    cy,
+    fireDir,
+    doorways,
+    hearth,
+    shelf,
+    table,
+    cauldron,
+  };
+  const blocked = new Set<string>();
+  for (const c of [hearth, shelf, table, cauldron]) blocked.add(key(c.x, c.y));
+
+  return { size, grid, start, exit, contents, searched: new Set(), level, lair, lairTaken: new Set(), blocked };
 }
 
 export function cellKey(x: number, y: number): string {
@@ -184,5 +224,12 @@ export function cellKey(x: number, y: number): string {
 
 export function isWalkable(d: Dungeon, x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= d.size || y >= d.size) return false;
-  return d.grid[y][x] !== WALL;
+  if (d.grid[y][x] === WALL) return false;
+  if (d.blocked.has(key(x, y))) return false;
+  return true;
+}
+
+/** True when the cell is inside Vess's study. */
+export function inLair(d: Dungeon, x: number, y: number): boolean {
+  return x >= d.lair.x0 && x <= d.lair.x1 && y >= d.lair.y0 && y <= d.lair.y1;
 }

@@ -25,6 +25,10 @@ export class DungeonRenderer {
     flames: THREE.Mesh[];
     embers: THREE.Points;
     emberVel: Float32Array;
+    bubbles: THREE.Points;
+    bubVel: Float32Array;
+    brewMat: THREE.MeshStandardMaterial;
+    coalLight: THREE.PointLight;
     phase: number;
   } | null = null;
 
@@ -136,10 +140,13 @@ export class DungeonRenderer {
     this.buildLair(d);
   }
 
-  /** Vess's study: fireplace + bookshelf + alchemy table in the lair cell. */
+  /** Vess's study: a real chamber — fireplace, bookshelf, alchemy table,
+   *  cauldron, and stone arches over every doorway. */
   private buildLair(d: Dungeon) {
-    // Tear down the previous level's study.
+    // Tear down the previous level's study. Shared texture-set maps are NOT
+    // disposed (they belong to textures.ts); per-level canvas textures are.
     if (this.lair) {
+      const sharedMaps = new Set(Object.values(this.textures));
       this.scene.remove(this.lair.group);
       this.lair.group.traverse((o) => {
         const mesh = o as THREE.Mesh;
@@ -148,7 +155,7 @@ export class DungeonRenderer {
         const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
         for (const m of mats) {
           const withMap = m as THREE.MeshStandardMaterial;
-          if (withMap.map) withMap.map.dispose();
+          if (withMap.map && !sharedMaps.has(withMap.map)) withMap.map.dispose();
           m.dispose();
         }
       });
@@ -156,37 +163,44 @@ export class DungeonRenderer {
     }
 
     const group = new THREE.Group();
-    const cx = d.lair.x * CELL;
-    const cz = d.lair.y * CELL;
-    const dirVec = [
+    const L = d.lair;
+    const VEC = [
       { x: 0, z: -1 },
       { x: 1, z: 0 },
       { x: 0, z: 1 },
       { x: -1, z: 0 },
-    ][d.lair.fireDir];
+    ];
+    const dirVec = VEC[L.fireDir];
+    const shelfDir = (L.fireDir + 1) % 4; // 90° clockwise from the fireplace
+    const svec = VEC[shelfDir];
     const yawFor = (vx: number, vz: number) => Math.atan2(vx, vz);
 
-    // -- Fireplace: stone hearth built into the wall --
-    const hx = cx + dirVec.x * 1.5;
-    const hz = cz + dirVec.z * 1.5;
-    const hearth = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 1.1, 0.8),
-      new THREE.MeshStandardMaterial({ color: 0x35302a, roughness: 1 })
-    );
-    hearth.position.set(hx, 0.55, hz);
+    // Shared-look materials: AI wood/iron/stone, registered so the PNG
+    // upgrades hit live props.
+    const woodMat = new THREE.MeshStandardMaterial({ map: this.textures.wood, roughness: 0.85 });
+    registerTexMat('wood', woodMat);
+    const ironMat = new THREE.MeshStandardMaterial({
+      map: this.textures.iron,
+      roughness: 0.55,
+      metalness: 0.65,
+      side: THREE.DoubleSide,
+    });
+    registerTexMat('iron', ironMat);
+    const stoneMat = new THREE.MeshStandardMaterial({ map: this.textures.wall, roughness: 0.95 });
+    registerTexMat('wall', stoneMat);
+
+    // -- Fireplace: hearth cell, built into the fireDir wall --
+    const hx = L.hearth.x * CELL + dirVec.x * 1.2;
+    const hz = L.hearth.y * CELL + dirVec.z * 1.2;
+    const hearth = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.15, 0.9), stoneMat);
+    hearth.position.set(hx, 0.575, hz);
     hearth.rotation.y = yawFor(-dirVec.x, -dirVec.z);
     group.add(hearth);
-    // Mantel slab.
-    const mantel = new THREE.Mesh(
-      new THREE.BoxGeometry(2.0, 0.14, 1.0),
-      new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 1 })
-    );
-    mantel.position.set(hx, 1.17, hz);
+    const mantel = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.16, 1.1), woodMat);
+    mantel.position.set(hx, 1.23, hz);
     mantel.rotation.y = hearth.rotation.y;
     group.add(mantel);
 
-    // Flames: crossed additive flame-sprite planes in front of the firebox
-    // opening (hearth front face sits at 1.1 out — the flames must clear it).
     const flames: THREE.Mesh[] = [];
     const flameTex = this.makeFlameTexture();
     const firePos = { x: hx - dirVec.x * 0.62, z: hz - dirVec.z * 0.62 };
@@ -206,12 +220,10 @@ export class DungeonRenderer {
       group.add(flame);
       flames.push(flame);
     }
-    // Firelight.
     const fireLight = new THREE.PointLight(0xff8033, 26, 16, 1.8);
     fireLight.position.set(firePos.x, 1.7, firePos.z);
     group.add(fireLight);
 
-    // Embers: additive points rising from the firebox.
     const EMBERS = 30;
     const epos = new Float32Array(EMBERS * 3);
     const evel = new Float32Array(EMBERS);
@@ -236,44 +248,28 @@ export class DungeonRenderer {
     );
     group.add(embers);
 
-    // -- Bookshelf: against a different wall than the fireplace --
-    const DXY = [
-      { x: 0, y: -1 },
-      { x: 1, y: 0 },
-      { x: 0, y: 1 },
-      { x: -1, y: 0 },
+    // -- Bookshelf: shelf cell, against the shelfDir wall. Book spines face
+    // the room (local +Z after yaw); other faces are wood.
+    const shx = L.shelf.x * CELL + svec.x * 1.2;
+    const shz = L.shelf.y * CELL + svec.z * 1.2;
+    const bookTex = this.makeBookshelfTexture();
+    const shelfMats = [
+      woodMat,
+      woodMat,
+      woodMat,
+      woodMat,
+      new THREE.MeshStandardMaterial({ map: bookTex, roughness: 0.9 }),
+      woodMat,
     ];
-    const wallDirs = [0, 1, 2, 3].filter((dd) => {
-      const nx = d.lair.x + DXY[dd].x;
-      const ny = d.lair.y + DXY[dd].y;
-      return ny >= 0 && ny < d.size && nx >= 0 && nx < d.size && d.grid[ny][nx] === WALL;
-    });
-    const shelfDir = wallDirs.find((dd) => dd !== d.lair.fireDir) ?? d.lair.fireDir;
-    const svec = [
-      { x: 0, z: -1 },
-      { x: 1, z: 0 },
-      { x: 0, z: 1 },
-      { x: -1, z: 0 },
-    ][shelfDir];
-    // Single-wall cell: the shelf shares the fireplace's wall — shift it
-    // sideways along the wall so it doesn't swallow the hearth.
-    const sameWall = shelfDir === d.lair.fireDir;
-    const lat = sameWall ? 1.35 : 0;
-    const perpx = -svec.z;
-    const perpz = svec.x;
-    const shelf = new THREE.Mesh(
-      new THREE.BoxGeometry(2.3, 2.5, 0.55),
-      new THREE.MeshStandardMaterial({ map: this.makeBookshelfTexture(), roughness: 0.9 })
-    );
-    shelf.position.set(cx + svec.x * 1.55 + perpx * lat, 1.25, cz + svec.z * 1.55 + perpz * lat);
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.6, 0.6), shelfMats);
+    shelf.position.set(shx, 1.3, shz);
     shelf.rotation.y = yawFor(-svec.x, -svec.z);
     group.add(shelf);
 
-    // -- Alchemy table: opposite the fire, potions on top --
-    const tx = cx - dirVec.x * 0.9;
-    const tz = cz - dirVec.z * 0.9;
-    const wood = new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 0.9 });
-    const top = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 1.1), wood);
+    // -- Alchemy table: table cell, centered. Wood top/legs, potion bottles.
+    const tx = L.table.x * CELL;
+    const tz = L.table.y * CELL;
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.12, 1.1), woodMat);
     top.position.set(tx, 0.85, tz);
     group.add(top);
     for (const [lx, lz] of [
@@ -282,7 +278,7 @@ export class DungeonRenderer {
       [-0.85, 0.45],
       [0.85, 0.45],
     ]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.85, 0.1), wood);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.85, 0.12), woodMat);
       leg.position.set(tx + lx, 0.42, tz + lz);
       group.add(leg);
     }
@@ -308,22 +304,127 @@ export class DungeonRenderer {
       group.add(cork);
     });
 
-    // Scattered papers — set dressing.
+    // -- Cauldron: iron pot over coals, green brew, rising bubbles --
+    const ccx = L.cauldron.x * CELL;
+    const ccz = L.cauldron.y * CELL;
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 8), ironMat);
+      leg.position.set(ccx + Math.cos(a) * 0.34, 0.28, ccz + Math.sin(a) * 0.34);
+      group.add(leg);
+    }
+    const coalMat = new THREE.MeshStandardMaterial({
+      color: 0x1a0f08,
+      emissive: 0xff5a1a,
+      emissiveIntensity: 1.6,
+      roughness: 1,
+    });
+    for (let i = 0; i < 6; i++) {
+      const coal = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.16), coalMat);
+      coal.position.set(ccx + (Math.random() - 0.5) * 0.5, 0.08, ccz + (Math.random() - 0.5) * 0.5);
+      coal.rotation.y = Math.random() * Math.PI;
+      group.add(coal);
+    }
+    const pot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.6, 20, 12, 0, Math.PI * 2, Math.PI * 0.32, Math.PI * 0.68),
+      ironMat
+    );
+    pot.scale.set(1, 0.85, 1);
+    pot.position.set(ccx, 0.75, ccz);
+    group.add(pot);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.08, 10, 22), ironMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(ccx, 1.02, ccz);
+    group.add(rim);
+    const brewMat = new THREE.MeshStandardMaterial({
+      color: 0x0d3a1a,
+      emissive: 0x39ff6a,
+      emissiveIntensity: 1.1,
+      roughness: 0.4,
+    });
+    const brew = new THREE.Mesh(new THREE.CircleGeometry(0.46, 20), brewMat);
+    brew.rotation.x = -Math.PI / 2;
+    brew.position.set(ccx, 1.0, ccz);
+    group.add(brew);
+    const coalLight = new THREE.PointLight(0xff6a2a, 10, 9, 1.8);
+    coalLight.position.set(ccx, 0.9, ccz);
+    group.add(coalLight);
+    const NBUB = 8;
+    const bpos = new Float32Array(NBUB * 3);
+    const bvel = new Float32Array(NBUB);
+    for (let i = 0; i < NBUB; i++) {
+      bpos[i * 3] = ccx + (Math.random() - 0.5) * 0.6;
+      bpos[i * 3 + 1] = 1.0 + Math.random() * 0.5;
+      bpos[i * 3 + 2] = ccz + (Math.random() - 0.5) * 0.6;
+      bvel[i] = 0.3 + Math.random() * 0.4;
+    }
+    const bubGeo = new THREE.BufferGeometry();
+    bubGeo.setAttribute('position', new THREE.BufferAttribute(bpos, 3));
+    const bubbles = new THREE.Points(
+      bubGeo,
+      new THREE.PointsMaterial({
+        color: 0x66ff88,
+        size: 0.09,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    group.add(bubbles);
+
+    // -- Arched doorways: half-torus stone arches + jambs over each opening --
+    const GDIR = [
+      { x: 0, y: -1 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 },
+    ];
+    for (const dw of L.doorways) {
+      const v = VEC[dw.dir]; // world-space {x, z}
+      const g = GDIR[dw.dir]; // grid-space {x, y}
+      const bx = (dw.x + g.x * 0.5) * CELL;
+      const bz = (dw.y + g.y * 0.5) * CELL;
+      const arch = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.3, 10, 20, Math.PI), stoneMat);
+      arch.position.set(bx, 0.25, bz);
+      arch.rotation.y = Math.atan2(v.x, v.z);
+      group.add(arch);
+      for (const s of [-1, 1]) {
+        const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.55, 2.4, 0.55), stoneMat);
+        jamb.position.set(bx + -v.z * s * 1.9, 1.2, bz + v.x * s * 1.9);
+        group.add(jamb);
+      }
+    }
+
+    // Scattered papers — set dressing on open room floor.
+    const blocked = new Set([`${L.hearth.x},${L.hearth.y}`, `${L.shelf.x},${L.shelf.y}`, `${L.table.x},${L.table.y}`, `${L.cauldron.x},${L.cauldron.y}`]);
     const paperMat = new THREE.MeshStandardMaterial({ color: 0xcbb98a, roughness: 1 });
-    for (let i = 0; i < 4; i++) {
-      const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.45), paperMat);
-      paper.rotation.x = -Math.PI / 2;
-      paper.rotation.z = Math.random() * Math.PI;
-      paper.position.set(
-        cx + (Math.random() - 0.5) * 2.4,
-        0.012,
-        cz + (Math.random() - 0.5) * 2.4
-      );
-      group.add(paper);
+    let papers = 0;
+    for (let y = L.y0; y <= L.y1 && papers < 7; y++) {
+      for (let x = L.x0; x <= L.x1 && papers < 7; x++) {
+        if (blocked.has(`${x},${y}`) || Math.random() < 0.45) continue;
+        const paper = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.45), paperMat);
+        paper.rotation.x = -Math.PI / 2;
+        paper.rotation.z = Math.random() * Math.PI;
+        paper.position.set(x * CELL + (Math.random() - 0.5) * 2, 0.012, y * CELL + (Math.random() - 0.5) * 2);
+        group.add(paper);
+        papers++;
+      }
     }
 
     this.scene.add(group);
-    this.lair = { group, fireLight, flames, embers, emberVel: evel, phase: Math.random() * 10 };
+    this.lair = {
+      group,
+      fireLight,
+      flames,
+      embers,
+      emberVel: evel,
+      bubbles,
+      bubVel: bvel,
+      brewMat,
+      coalLight,
+      phase: Math.random() * 10,
+    };
   }
 
   /** Teardrop flame sprite: hot core → transparent tip, for additive planes. */
@@ -425,6 +526,16 @@ export class DungeonRenderer {
         pos.setX(i, pos.getX(i) + Math.sin(L.phase * 3 + i * 1.7) * dt * 0.25);
       }
       pos.needsUpdate = true;
+      // Cauldron: bubbles rise and pop, brew glows, coals breathe.
+      const bp = L.bubbles.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i < L.bubVel.length; i++) {
+        let y = bp.getY(i) + L.bubVel[i] * dt;
+        if (y > 1.6) y = 1.0;
+        bp.setY(i, y);
+      }
+      bp.needsUpdate = true;
+      L.brewMat.emissiveIntensity = 1.1 + Math.sin(L.phase * 2.4) * 0.35;
+      L.coalLight.intensity = 10 + Math.sin(L.phase * 7 + 1) * 2.5;
     }
     // Screen shake: remove last frame's offset, apply a fresh decaying one.
     this.camera.position.x -= this.lastShakeX;

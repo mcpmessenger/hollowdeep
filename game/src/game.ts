@@ -7,7 +7,9 @@ import {
   Dungeon,
   generateDungeon,
   isWalkable,
+  inLair,
   cellKey,
+  Cell,
   CellContent,
   EXIT,
 } from './dungeon';
@@ -67,6 +69,14 @@ const LORE = [
   'A child’s drawing of a sun, impossibly far underground.',
   'Wet footprints lead into the wall and do not come out.',
 ];
+
+/** Every cell of Vess's study — monsters never spawn inside. */
+function roomCells(d: Dungeon): Cell[] {
+  const out: Cell[] = [];
+  for (let y = d.lair.y0; y <= d.lair.y1; y++)
+    for (let x = d.lair.x0; x <= d.lair.x1; x++) out.push({ x, y });
+  return out;
+}
 
 interface Tween {
   t: number;
@@ -186,8 +196,8 @@ export class Game {
       setTimeout(() => {
         document.getElementById('title')!.style.display = 'none';
         this.started = true;
-        this.px = this.d.lair.x;
-        this.py = this.d.lair.y;
+        this.px = this.d.lair.cx;
+        this.py = this.d.lair.cy;
         this.dir = this.d.lair.fireDir; // face the fireplace straight on
         markVisited(this.d, this.px, this.py);
         this.renderer.setView(this.px, this.py, this.dir);
@@ -234,7 +244,10 @@ export class Game {
     this.occupied.clear();
     for (const m of this.monsters) killMonster(this.renderer.scene, m);
     resetSpriteRegistry(); // all level materials disposed above
-    this.monsters = spawnMonsters(this.renderer.scene, d, [d.start, { x: d.lair.x, y: d.lair.y }]);
+    this.monsters = spawnMonsters(this.renderer.scene, d, [
+      d.start,
+      ...roomCells(d),
+    ]);
     for (const m of this.monsters) this.occupied.add(`${m.pos.x},${m.pos.y}`);
     this.renderer.build(d);
     markVisited(d, this.px, this.py);
@@ -289,7 +302,7 @@ export class Game {
     markVisited(this.d, nx, ny);
     this.exitWhisper();
     this.audio.footstep();
-    if (nx === this.d.lair.x && ny === this.d.lair.y && !this.lairGreeted) {
+    if (inLair(this.d, nx, ny) && !this.lairGreeted) {
       this.lairGreeted = true;
       this.hud.log("Vess's study. Dust, old paper — and a fire that never goes out.");
     }
@@ -451,8 +464,9 @@ export class Game {
 
   private search() {
     if (this.over) return;
-    // Vess's study: the shelf gives her journal page, the table a tonic.
-    if (this.px === this.d.lair.x && this.py === this.d.lair.y) {
+    // Vess's study: the shelf gives her journal page, the table a tonic,
+    // the cauldron a brew. Search anywhere in the room.
+    if (inLair(this.d, this.px, this.py)) {
       this.searchLair();
       return;
     }
@@ -495,7 +509,7 @@ export class Game {
     }
   }
 
-  /** Searching inside the study: shelf first (journal), then table (tonic). */
+  /** Searching inside the study: shelf (journal), table (tonic), cauldron (brew). */
   private searchLair() {
     this.audio.search();
     if (!this.d.lairTaken.has('shelf')) {
@@ -510,8 +524,14 @@ export class Game {
       this.hud.setHp(this.hp, this.maxHp);
       this.audio.find();
       this.hud.log("One of Vess's tonics, labeled in her hand: 'for whoever follows.' +6 HP.");
+    } else if (!this.d.lairTaken.has('cauldron')) {
+      this.d.lairTaken.add('cauldron');
+      this.hp = Math.min(this.maxHp, this.hp + 8);
+      this.hud.setHp(this.hp, this.maxHp);
+      this.audio.find();
+      this.hud.log("You ladle up Vess's firebelly brew — smoke and courage. +8 HP.");
     } else {
-      this.hud.log('The study keeps its silence. The fire pops.');
+      this.hud.log('The study keeps its silence. The fire pops, the brew bubbles.');
     }
   }
 
@@ -569,8 +589,9 @@ export class Game {
     if (this.tickTimer > 0.55) {
       this.tickTimer = 0;
       // Fireplace crackle when near the study.
-      const lairDist = Math.abs(this.px - this.d.lair.x) + Math.abs(this.py - this.d.lair.y);
-      if (lairDist <= 7) this.audio.startFire();
+      const lairDist =
+        Math.abs(this.px - this.d.lair.cx) + Math.abs(this.py - this.d.lair.cy);
+      if (lairDist <= 8) this.audio.startFire();
       else this.audio.stopFire();
       const graced = performance.now() < this.graceUntil;
       for (const m of this.monsters) {
