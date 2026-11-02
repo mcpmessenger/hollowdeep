@@ -185,9 +185,10 @@ export class DungeonRenderer {
     mantel.rotation.y = hearth.rotation.y;
     group.add(mantel);
 
-    // Flames: crossed emissive planes in the firebox.
+    // Flames: crossed emissive planes in front of the firebox opening
+    // (hearth front face sits at 1.1 out — the flames must clear it).
     const flames: THREE.Mesh[] = [];
-    const firePos = { x: hx - dirVec.x * 0.35, z: hz - dirVec.z * 0.35 };
+    const firePos = { x: hx - dirVec.x * 0.62, z: hz - dirVec.z * 0.62 };
     for (let i = 0; i < 3; i++) {
       const flame = new THREE.Mesh(
         new THREE.PlaneGeometry(0.55, 0.9),
