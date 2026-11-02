@@ -44,9 +44,13 @@ export class DungeonRenderer {
     brewMat: THREE.MeshStandardMaterial;
     coalLight: THREE.PointLight;
     smoke: SmokePuff[];
+    clockMinute: THREE.Group;
+    clockHour: THREE.Group;
+    clockPendulum: THREE.Group;
     phase: number;
   } | null = null;
   private smokeTex: THREE.CanvasTexture | null = null;
+  private clockFaceTex: THREE.CanvasTexture | null = null;
 
   /** Screen shake — call on hits/bites. Decays automatically, leaves no drift. */
   addShake(n: number) {
@@ -398,6 +402,64 @@ export class DungeonRenderer {
       ...this.makeSmoke(10, firePos.x, 1.35, firePos.z, 0x8a8a8a, 0.3, 0.55, 1.7, THREE.NormalBlending, group),
     ];
 
+    // -- Grandfather clock: corner opposite the cauldron. Wood case, painted
+    // face, hands that walk BACKWARDS (time pools down here), swinging pendulum.
+    const klx = L.clock.x * CELL;
+    const klz = L.clock.y * CELL;
+    const clockG = new THREE.Group();
+    clockG.position.set(klx, 0, klz);
+    clockG.rotation.y = Math.atan2(L.cx - L.clock.x, L.cy - L.clock.y); // face room center
+    const caseMesh = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.1, 0.7), woodMat);
+    caseMesh.position.y = 1.55;
+    clockG.add(caseMesh);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.18, 0.85), woodMat);
+    cap.position.y = 3.18;
+    clockG.add(cap);
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.25, 0.8), woodMat);
+    plinth.position.y = 0.12;
+    clockG.add(plinth);
+    if (!this.clockFaceTex) this.clockFaceTex = this.makeClockFaceTexture();
+    const face = new THREE.Mesh(
+      new THREE.CircleGeometry(0.4, 28),
+      new THREE.MeshStandardMaterial({ map: this.clockFaceTex, roughness: 0.6 })
+    );
+    face.position.set(0, 2.5, 0.36);
+    clockG.add(face);
+    const handMat = new THREE.MeshStandardMaterial({ color: 0x1a140c, roughness: 0.5 });
+    const clockHour = new THREE.Group();
+    const hhm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.22, 0.02), handMat);
+    hhm.position.y = 0.09;
+    clockHour.add(hhm);
+    clockHour.position.set(0, 2.5, 0.38);
+    clockG.add(clockHour);
+    const clockMinute = new THREE.Group();
+    const mhm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.32, 0.02), handMat);
+    mhm.position.y = 0.13;
+    clockMinute.add(mhm);
+    clockMinute.position.set(0, 2.5, 0.39);
+    clockG.add(clockMinute);
+    // Pendulum behind a dark inset panel (reads as glass without transparency).
+    const panel = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 1.5),
+      new THREE.MeshStandardMaterial({ color: 0x0a0805, roughness: 1 })
+    );
+    panel.position.set(0, 1.15, 0.36);
+    clockG.add(panel);
+    const clockPendulum = new THREE.Group();
+    clockPendulum.position.set(0, 1.85, 0.38);
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.2, 8), handMat);
+    rod.position.y = -0.6;
+    clockPendulum.add(rod);
+    const bob = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.14, 0.14, 0.04, 20),
+      new THREE.MeshStandardMaterial({ color: 0xa8842a, metalness: 0.8, roughness: 0.35 })
+    );
+    bob.rotation.x = Math.PI / 2;
+    bob.position.y = -1.15;
+    clockPendulum.add(bob);
+    clockG.add(clockPendulum);
+    group.add(clockG);
+
     // -- Arched doorways: half-torus stone arches + jambs over each opening --
     const GDIR = [
       { x: 0, y: -1 },
@@ -422,7 +484,7 @@ export class DungeonRenderer {
     }
 
     // Scattered papers — set dressing on open room floor.
-    const blocked = new Set([`${L.hearth.x},${L.hearth.y}`, `${L.shelf.x},${L.shelf.y}`, `${L.table.x},${L.table.y}`, `${L.cauldron.x},${L.cauldron.y}`]);
+    const blocked = new Set([`${L.hearth.x},${L.hearth.y}`, `${L.shelf.x},${L.shelf.y}`, `${L.table.x},${L.table.y}`, `${L.cauldron.x},${L.cauldron.y}`, `${L.clock.x},${L.clock.y}`]);
     const paperMat = new THREE.MeshStandardMaterial({ color: 0xcbb98a, roughness: 1 });
     let papers = 0;
     for (let y = L.y0; y <= L.y1 && papers < 7; y++) {
@@ -449,8 +511,52 @@ export class DungeonRenderer {
       brewMat,
       coalLight,
       smoke,
+      clockMinute,
+      clockHour,
+      clockPendulum,
       phase: Math.random() * 10,
     };
+  }
+
+  /** Aged clock face: cream, tick marks, roman quarters. Shared across levels. */
+  private makeClockFaceTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#e8dcc0';
+    g.beginPath();
+    g.arc(128, 128, 126, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#5a4a2a';
+    g.lineWidth = 6;
+    g.beginPath();
+    g.arc(128, 128, 116, 0, Math.PI * 2);
+    g.stroke();
+    for (let i = 0; i < 60; i++) {
+      const a = (i / 60) * Math.PI * 2;
+      const big = i % 5 === 0;
+      g.strokeStyle = '#3a2f1a';
+      g.lineWidth = big ? 5 : 2;
+      const r1 = big ? 98 : 106;
+      const r2 = 112;
+      g.beginPath();
+      g.moveTo(128 + Math.cos(a) * r1, 128 + Math.sin(a) * r1);
+      g.lineTo(128 + Math.cos(a) * r2, 128 + Math.sin(a) * r2);
+      g.stroke();
+    }
+    g.fillStyle = '#3a2f1a';
+    g.font = 'bold 26px serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('XII', 128, 44);
+    g.fillText('III', 212, 128);
+    g.fillText('VI', 128, 212);
+    g.fillText('IX', 44, 128);
+    g.fillStyle = '#2a2114';
+    g.beginPath();
+    g.arc(128, 128, 8, 0, Math.PI * 2);
+    g.fill();
+    return new THREE.CanvasTexture(c);
   }
 
   /** Soft radial blob texture, tinted per smoke system via sprite color. */
@@ -627,6 +733,12 @@ export class DungeonRenderer {
       bp.needsUpdate = true;
       L.brewMat.emissiveIntensity = 1.1 + Math.sin(L.phase * 2.4) * 0.35;
       L.coalLight.intensity = 10 + Math.sin(L.phase * 7 + 1) * 2.5;
+      // Grandfather clock: hands walk BACKWARDS (time pools down here),
+      // pendulum swings on a 2s period.
+      const back = L.phase * ((Math.PI * 2) / 120); // full backwards turn per 120s
+      L.clockMinute.rotation.z = back;
+      L.clockHour.rotation.z = back / 12;
+      L.clockPendulum.rotation.z = Math.sin(L.phase * Math.PI) * 0.28;
       // Smoke puffs: rise, grow, fade, recycle.
       for (const p of L.smoke) {
         p.life += dt;

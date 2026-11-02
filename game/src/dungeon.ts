@@ -32,6 +32,7 @@ export interface Lair {
   shelf: Cell;
   table: Cell;
   cauldron: Cell;
+  clock: Cell; // grandfather clock, corner opposite the cauldron
 }
 
 export type CellContent = 'gold' | 'trap' | 'lore' | 'bandage' | null;
@@ -199,6 +200,7 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
   const shelf: Cell = { x: cx + rv.x * 2, y: cy + rv.y * 2 };
   const table: Cell = { x: cx - fv.x, y: cy - fv.y };
   const cauldron: Cell = { x: cx + rv.x + fv.x, y: cy + rv.y + fv.y };
+  const clock: Cell = { x: cx - rv.x - fv.x, y: cy - rv.y - fv.y }; // opposite corner
   const lair: Lair = {
     x0: rx,
     y0: ry,
@@ -212,8 +214,9 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
     shelf,
     table,
     cauldron,
+    clock,
   };
-  const blocked = new Set<string>([key(hearth.x, hearth.y)]);
+  const blocked = new Set<string>([key(hearth.x, hearth.y), key(clock.x, clock.y)]);
 
   return { size, grid, start, exit, contents, searched: new Set(), level, lair, lairTaken: new Set(), blocked };
 }

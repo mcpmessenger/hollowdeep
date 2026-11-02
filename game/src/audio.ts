@@ -37,6 +37,19 @@ export class GameAudio {
   private musicBus: GainNode | null = null;
   private musicTimer: number | null = null;
   private fireNodes: { src: AudioBufferSourceNode; timer: number } | null = null;
+  private clockTimer: number | null = null;
+  private clockTickHigh = false;
+  private muted = false;
+
+  /** Mute toggle — master gain to zero. Timers keep running silently. */
+  setMuted(m: boolean) {
+    this.muted = m;
+    if (this.master) this.master.gain.value = m ? 0 : 0.5;
+  }
+
+  isMuted(): boolean {
+    return this.muted;
+  }
 
   /** Call from a user gesture. Safe to call repeatedly. */
   unlock() {
@@ -449,5 +462,26 @@ export class GameAudio {
       /* already stopped */
     }
     this.fireNodes = null;
+  }
+
+  // ---- grandfather clock ----
+
+  /** Tick-tock, one beat per second, alternating pitch. Idempotent; call when
+   *  near the study, stopClock() when leaving. */
+  startClock() {
+    if (!this.ready || this.clockTimer !== null) return;
+    const tick = () => {
+      if (this.clockTimer === null) return; // stopped mid-flight
+      this.clockTickHigh = !this.clockTickHigh;
+      this.noise(0.035, this.clockTickHigh ? 2300 : 1500, 'bandpass', 0.11);
+      this.clockTimer = window.setTimeout(tick, 1000);
+    };
+    this.clockTimer = window.setTimeout(tick, 400);
+  }
+
+  stopClock() {
+    if (this.clockTimer === null) return;
+    clearTimeout(this.clockTimer);
+    this.clockTimer = null;
   }
 }

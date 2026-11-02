@@ -18,6 +18,8 @@ export class HUD {
   private dialogueEl: HTMLElement;
   private dialogueOpen = false;
   private dialogueOnChoice: ((id: string) => void) | null = null;
+  private muteBtn: HTMLButtonElement;
+  private onMuteToggle: (() => void) | null = null;
 
   constructor() {
     // Directional damage vignette (red edge flash).
@@ -36,6 +38,16 @@ export class HUD {
       'position:fixed;top:34px;left:14px;color:#c8a03a;font-size:13px;letter-spacing:2px;z-index:10;opacity:0.9;';
     this.goldEl.textContent = '◈ 0';
     document.body.appendChild(this.goldEl);
+    // Mute toggle — top-right, under the HP bar. Click or M.
+    this.muteBtn = document.createElement('button');
+    this.muteBtn.style.cssText =
+      'position:fixed;top:52px;right:14px;z-index:10;background:rgba(20,16,11,0.7);' +
+      'border:1px solid #6b5320;color:#d8c690;font-size:16px;width:36px;height:36px;' +
+      'cursor:pointer;border-radius:4px;';
+    this.muteBtn.textContent = '🔊';
+    this.muteBtn.title = 'Mute (M)';
+    this.muteBtn.addEventListener('click', () => this.onMuteToggle && this.onMuteToggle());
+    document.body.appendChild(this.muteBtn);
     // Vess's journal — collected pages, toggled with J.
     this.journalEl = document.createElement('div');
     this.journalEl.style.cssText =
@@ -181,6 +193,15 @@ export class HUD {
     this.dialogueEl.style.display = 'none';
     this.dialogueOpen = false;
     this.dialogueOnChoice = null;
+  }
+
+  /** Mute button wiring. */
+  setMuteHandler(fn: () => void) {
+    this.onMuteToggle = fn;
+  }
+
+  setMuted(muted: boolean) {
+    this.muteBtn.textContent = muted ? '🔇' : '🔊';
   }
 
   log(msg: string) {

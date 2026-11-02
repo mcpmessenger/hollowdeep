@@ -47,6 +47,7 @@ interface Best {
 }
 
 const BEST_KEY = 'hollowdeep.best.v1';
+const MUTE_KEY = 'hollowdeep.muted.v1';
 
 function loadBest(): Best | null {
   try {
@@ -153,6 +154,7 @@ export class Game {
 
   constructor(container: HTMLElement) {
     this.renderer = new DungeonRenderer(container);
+    this.hud.setMuteHandler(() => this.toggleMute());
     this.d = generateDungeon(15, 1);
     this.newLevel(this.d, true);
 
@@ -164,6 +166,14 @@ export class Game {
     const dismissTitle = () => {
       if (this.started) return;
       this.audio.unlock(); // user gesture — safe to start audio
+      // Restore the saved mute state (M or the speaker button toggles it).
+      try {
+        const saved = localStorage.getItem(MUTE_KEY) === '1';
+        this.audio.setMuted(saved);
+        this.hud.setMuted(saved);
+      } catch {
+        /* best-effort */
+      }
       this.audio.startAmbient();
       this.audio.startMusic();
       titleEl.style.display = 'none';
@@ -291,7 +301,8 @@ export class Game {
     this.tween = null;
     this.exitHintTier = 0;
     this.lairGreeted = false;
-    this.audio.stopFire(); // proximity check restarts it if the study is near
+    this.audio.stopFire();
+    this.audio.stopClock(); // proximity check restarts them if the study is near
     // Grace period: the labyrinth hasn't noticed you yet (~3s).
     this.graceUntil = performance.now() + 3000;
     this.occupied.clear();
@@ -448,6 +459,10 @@ export class Game {
       }
       return; // escape with nothing open
     }
+    if (k === 'm') {
+      this.toggleMute();
+      return;
+    }
     if (this.hud.isJournalOpen() || this.hud.isDialogueOpen()) {
       // Choice keys while talking. Chad has 3 choices, Vess has 4.
       if (this.dialogueMode === 'chad') {
@@ -543,6 +558,19 @@ export class Game {
     } else {
       this.hud.log(`You hit the ${m.name} for ${dmg}.`);
     }
+  }
+
+  /** Mute toggle — M key or the speaker button. Persists across sessions. */
+  private toggleMute() {
+    const muted = !this.audio.isMuted();
+    this.audio.setMuted(muted);
+    this.hud.setMuted(muted);
+    try {
+      localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
+    } catch {
+      /* best-effort */
+    }
+    this.hud.log(muted ? 'Muted. The dungeon holds its breath.' : 'Sound on. The dungeon exhales.');
   }
 
   /** Press T: talk to Chad if he's near, else to Vess's echo if in her study. */
@@ -712,6 +740,12 @@ export class Game {
       this.hud.setHp(this.hp, this.maxHp);
       this.audio.find();
       this.hud.log("You ladle up Vess's firebelly brew — smoke and courage. +8 HP.");
+    } else if (!this.d.lairTaken.has('clock')) {
+      this.d.lairTaken.add('clock');
+      this.audio.find();
+      this.hud.log(
+        "Vess's grandfather clock. The hands walk backwards, patient as grief — fifty years of wrong time, and it still ticks."
+      );
     } else {
       this.hud.log('The study keeps its silence. The fire pops, the brew bubbles.');
     }
@@ -722,6 +756,7 @@ export class Game {
       this.over = true;
       this.audio.death();
       this.audio.stopFire();
+      this.audio.stopClock();
       // The labyrinth keeps score.
       const run: Best = { depth: this.d.level, kills: this.kills, gold: this.gold };
       const prev = loadBest();
@@ -787,8 +822,13 @@ export class Game {
       // Fireplace crackle when near the study.
       const lairDist =
         Math.abs(this.px - this.d.lair.cx) + Math.abs(this.py - this.d.lair.cy);
-      if (lairDist <= 8) this.audio.startFire();
-      else this.audio.stopFire();
+      if (lairDist <= 8) {
+        this.audio.startFire();
+        this.audio.startClock();
+      } else {
+        this.audio.stopFire();
+        this.audio.stopClock();
+      }
       const graced = performance.now() < this.graceUntil;
       for (const m of this.monsters) {
         if (graced && m.kind !== 'wraith') continue;
