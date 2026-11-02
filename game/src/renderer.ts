@@ -391,9 +391,12 @@ export class DungeonRenderer {
     group.add(bubbles);
 
     // Smoke: green wisps off the brew, grey smoke off the fireplace.
+    // DIAGNOSTIC: green also at the fireplace to isolate whether the
+    // cauldron position itself is the problem.
     if (!this.smokeTex) this.smokeTex = this.makeSmokeTexture();
     const smoke: SmokePuff[] = [
       ...this.makeSmoke(12, ccx, 1.2, ccz, 0x4dff6a, 0.55, 0.5, 1.6, THREE.AdditiveBlending, group),
+      ...this.makeSmoke(6, firePos.x, 1.35, firePos.z, 0x4dff6a, 0.55, 0.55, 1.6, THREE.AdditiveBlending, group),
       ...this.makeSmoke(10, firePos.x, 1.35, firePos.z, 0x8a8a8a, 0.3, 0.55, 1.7, THREE.NormalBlending, group),
     ];
 
