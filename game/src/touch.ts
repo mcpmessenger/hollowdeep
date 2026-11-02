@@ -42,6 +42,7 @@ const CSS = `
 #touch .actions [data-act="tl"] { grid-column: 1; grid-row: 1; }
 #touch .actions [data-act="tr"] { grid-column: 3; grid-row: 1; }
 #touch .actions [data-act="srch"] { grid-column: 1; grid-row: 2; }
+#touch .actions [data-act="jrnl"] { grid-column: 3; grid-row: 2; }
 /* Get out of the way of the log + minimap on small screens */
 body.touch #log { bottom: 216px; }
 body.touch #minimap { bottom: 216px; }
@@ -60,6 +61,7 @@ const ACTIONS: Array<BtnDef & { act: string }> = [
   { label: '⟲', key: 'arrowleft', act: 'tl' },
   { label: '⟳', key: 'arrowright', act: 'tr' },
   { label: '⌕', key: 'f', act: 'srch' },
+  { label: '📜', key: 'j', act: 'jrnl' },
 ];
 
 export function initTouchControls(onPress: (key: string) => void): { show: () => void } {

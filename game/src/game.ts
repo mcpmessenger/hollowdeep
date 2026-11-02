@@ -15,6 +15,7 @@ import { Monster, MonsterKind, spawnMonsters, monsterTick, killMonster, resetSpr
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio } from './audio';
 import { initTouchControls, isTouchDevice } from './touch';
+import { journalPage } from './lore';
 
 interface Best {
   depth: number;
@@ -102,6 +103,8 @@ export class Game {
   private graceUntil = 0; // ms timestamp — monsters idle until then (spawn safety)
   private lastGrowl = 0;
   private kills = 0; // this run — remembered in localStorage on death
+  private journal: string[] = []; // Vess's pages, collected across depths
+  private lairGreeted = false; // per level
 
   constructor(container: HTMLElement) {
     this.renderer = new DungeonRenderer(container);
@@ -182,7 +185,8 @@ export class Game {
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      if (this.started && !this.over) this.update(dt);
+      // Journal open = the delver is reading; the dungeon waits.
+      if (this.started && !this.over && !this.hud.isJournalOpen()) this.update(dt);
       this.renderer.update(dt);
       this.renderer.render();
       requestAnimationFrame(loop);
@@ -208,6 +212,8 @@ export class Game {
     }) ?? 1;
     this.tween = null;
     this.exitHintTier = 0;
+    this.lairGreeted = false;
+    this.audio.stopFire(); // proximity check restarts it if the study is near
     // Grace period: the labyrinth hasn't noticed you yet (~3s).
     this.graceUntil = performance.now() + 3000;
     this.occupied.clear();
@@ -268,6 +274,10 @@ export class Game {
     markVisited(this.d, nx, ny);
     this.exitWhisper();
     this.audio.footstep();
+    if (nx === this.d.lair.x && ny === this.d.lair.y && !this.lairGreeted) {
+      this.lairGreeted = true;
+      this.hud.log("Vess's study. Dust, old paper — and a fire that never goes out.");
+    }
     if (this.d.grid[ny][nx] === EXIT) {
       setTimeout(() => {
         if (!this.over) {
@@ -333,7 +343,14 @@ export class Game {
   }
 
   private handleKey(k: string) {
-    if (!this.started || this.over || this.tween) return;
+    if (!this.started || this.over) return;
+    // The journal captures input while open.
+    if (k === 'j' || k === 'escape') {
+      if (this.hud.isJournalOpen()) this.hud.hideJournal();
+      else if (k === 'j') this.hud.showJournal(this.journal);
+      return;
+    }
+    if (this.hud.isJournalOpen() || this.tween) return;
     const [fx, fy] = this.forward();
     switch (k) {
       case 'w':
@@ -419,6 +436,11 @@ export class Game {
 
   private search() {
     if (this.over) return;
+    // Vess's study: the shelf gives her journal page, the table a tonic.
+    if (this.px === this.d.lair.x && this.py === this.d.lair.y) {
+      this.searchLair();
+      return;
+    }
     const k = cellKey(this.px, this.py);
     if (this.d.searched.has(k)) {
       this.hud.log('You already searched here. The dust remembers.');
@@ -458,10 +480,31 @@ export class Game {
     }
   }
 
+  /** Searching inside the study: shelf first (journal), then table (tonic). */
+  private searchLair() {
+    this.audio.search();
+    if (!this.d.lairTaken.has('shelf')) {
+      this.d.lairTaken.add('shelf');
+      const page = journalPage(this.d.level);
+      this.journal.push(page);
+      this.audio.find();
+      this.hud.log('You pull a loose journal from the shelf. Page kept — press J to read.');
+    } else if (!this.d.lairTaken.has('table')) {
+      this.d.lairTaken.add('table');
+      this.hp = Math.min(this.maxHp, this.hp + 6);
+      this.hud.setHp(this.hp, this.maxHp);
+      this.audio.find();
+      this.hud.log("One of Vess's tonics, labeled in her hand: 'for whoever follows.' +6 HP.");
+    } else {
+      this.hud.log('The study keeps its silence. The fire pops.');
+    }
+  }
+
   private checkDeath() {
     if (this.hp <= 0 && !this.over) {
       this.over = true;
       this.audio.death();
+      this.audio.stopFire();
       // The labyrinth keeps score.
       const run: Best = { depth: this.d.level, kills: this.kills, gold: this.gold };
       const prev = loadBest();
@@ -510,6 +553,10 @@ export class Game {
     this.tickTimer += dt;
     if (this.tickTimer > 0.55) {
       this.tickTimer = 0;
+      // Fireplace crackle when near the study.
+      const lairDist = Math.abs(this.px - this.d.lair.x) + Math.abs(this.py - this.d.lair.y);
+      if (lairDist <= 7) this.audio.startFire();
+      else this.audio.stopFire();
       const graced = performance.now() < this.graceUntil;
       for (const m of this.monsters) {
         if (graced && m.kind !== 'wraith') continue;

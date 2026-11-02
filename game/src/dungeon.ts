@@ -10,6 +10,14 @@ export interface Cell {
   y: number;
 }
 
+/** Vess Holloway's study — one anchor cell per depth holding all furniture. */
+export interface Lair {
+  x: number;
+  y: number;
+  /** direction the fireplace is built into (0=N,1=E,2=S,3=W); always a wall */
+  fireDir: number;
+}
+
 export type CellContent = 'gold' | 'trap' | 'lore' | 'bandage' | null;
 
 export interface Dungeon {
@@ -21,6 +29,9 @@ export interface Dungeon {
   contents: Map<string, CellContent>;
   searched: Set<string>;
   level: number;
+  lair: Lair;
+  /** lair loot taken this level: 'shelf' (journal) and/or 'table' (tonic) */
+  lairTaken: Set<string>;
 }
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -122,7 +133,49 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
   if (nearDeadEnds[0]) contents.set(key(nearDeadEnds[0].c.x, nearDeadEnds[0].c.y), 'gold');
   if (nearDeadEnds[1]) contents.set(key(nearDeadEnds[1].c.x, nearDeadEnds[1].c.y), 'bandage');
 
-  return { size, grid, start, exit, contents, searched: new Set(), level };
+  // Vess's study: an anchor cell mid-depth (BFS 8–22 from start), never the
+  // exit, with at least one adjacent wall for the fireplace. All furniture
+  // lives in this one cell, arranged around its walls.
+  const DIRS = [
+    { x: 0, y: -1 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 },
+  ];
+  const hasWallNeighbor = (x: number, y: number) =>
+    DIRS.some((d) => grid[y + d.y] && grid[y + d.y][x + d.x] === WALL);
+  const candidates: Cell[] = [];
+  for (let y = 1; y < size - 1; y++)
+    for (let x = 1; x < size - 1; x++) {
+      if (grid[y][x] !== FLOOR) continue;
+      if (x === exit.x && y === exit.y) continue;
+      if (dist[y][x] < 8 || dist[y][x] > 22) continue;
+      if (!hasWallNeighbor(x, y)) continue;
+      candidates.push({ x, y });
+    }
+  let anchor: Cell | null = candidates.length
+    ? candidates[(Math.random() * candidates.length) | 0]
+    : null;
+  if (!anchor) {
+    // Fallback: farthest non-exit floor cell with a wall neighbor.
+    let best = -1;
+    for (let y = 1; y < size - 1; y++)
+      for (let x = 1; x < size - 1; x++) {
+        if (grid[y][x] !== FLOOR || (x === exit.x && y === exit.y)) continue;
+        if (!hasWallNeighbor(x, y)) continue;
+        if (dist[y][x] > best) {
+          best = dist[y][x];
+          anchor = { x, y };
+        }
+      }
+  }
+  if (!anchor) anchor = { ...start }; // degenerate; never happens on 15x15
+  const fireDir = DIRS.findIndex(
+    (d) => grid[anchor!.y + d.y] && grid[anchor!.y + d.y][anchor!.x + d.x] === WALL
+  );
+  const lair: Lair = { x: anchor.x, y: anchor.y, fireDir: fireDir === -1 ? 0 : fireDir };
+
+  return { size, grid, start, exit, contents, searched: new Set(), level, lair, lairTaken: new Set() };
 }
 
 export function cellKey(x: number, y: number): string {

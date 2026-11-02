@@ -9,6 +9,7 @@ export class GameAudio {
   private whisperBufs: Record<'far' | 'near', AudioBuffer | null> = { far: null, near: null };
   private musicBus: GainNode | null = null;
   private musicTimer: number | null = null;
+  private fireNodes: { src: AudioBufferSourceNode; timer: number } | null = null;
 
   /** Call from a user gesture. Safe to call repeatedly. */
   unlock() {
@@ -335,5 +336,45 @@ export class GameAudio {
     o.connect(g).connect(this.musicBus);
     o.start(t);
     o.stop(t + 1.3);
+  }
+
+  // ---- fireplace ----
+
+  /** Looping fire rumble + random crackle pops. Idempotent; call when near
+   *  the study, stopFire() when leaving. */
+  startFire() {
+    if (!this.ready || this.fireNodes) return;
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 320;
+    const g = ctx.createGain();
+    g.gain.value = 0.045;
+    src.connect(lp).connect(g).connect(this.master!);
+    src.start();
+    const pop = () => {
+      if (!this.fireNodes) return; // stopped mid-flight
+      this.noise(0.05 + Math.random() * 0.09, 900 + Math.random() * 1800, 'bandpass', 0.08 + Math.random() * 0.1);
+      // Occasional double-crack.
+      if (Math.random() < 0.3)
+        this.noise(0.04, 1400 + Math.random() * 1200, 'bandpass', 0.07, 0.07);
+      this.fireNodes.timer = window.setTimeout(pop, 140 + Math.random() * 750);
+    };
+    const timer = window.setTimeout(pop, 250);
+    this.fireNodes = { src, timer };
+  }
+
+  stopFire() {
+    if (!this.fireNodes) return;
+    clearTimeout(this.fireNodes.timer);
+    try {
+      this.fireNodes.src.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.fireNodes = null;
   }
 }

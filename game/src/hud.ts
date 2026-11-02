@@ -13,6 +13,8 @@ export class HUD {
   private dmgEl: HTMLElement;
   private hitEl: HTMLElement;
   private goldEl: HTMLElement;
+  private journalEl: HTMLElement;
+  private journalOpen = false;
 
   constructor() {
     // Directional damage vignette (red edge flash).
@@ -31,6 +33,57 @@ export class HUD {
       'position:fixed;top:34px;left:14px;color:#c8a03a;font-size:13px;letter-spacing:2px;z-index:10;opacity:0.9;';
     this.goldEl.textContent = '◈ 0';
     document.body.appendChild(this.goldEl);
+    // Vess's journal — collected pages, toggled with J.
+    this.journalEl = document.createElement('div');
+    this.journalEl.style.cssText =
+      'position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;' +
+      'background:rgba(0,0,0,0.72);pointer-events:auto;cursor:pointer;';
+    this.journalEl.addEventListener('click', () => this.hideJournal());
+    document.body.appendChild(this.journalEl);
+  }
+
+  /** Vess's collected journal pages. Toggle with J. */
+  isJournalOpen(): boolean {
+    return this.journalOpen;
+  }
+
+  showJournal(pages: string[]) {
+    const inner = document.createElement('div');
+    inner.style.cssText =
+      'max-width:560px;max-height:76vh;overflow-y:auto;background:#14100b;border:1px solid #6b5320;' +
+      'padding:28px 32px;color:#d8c690;font-size:15px;line-height:1.7;cursor:default;' +
+      'box-shadow:0 0 60px rgba(0,0,0,0.9);';
+    inner.addEventListener('click', (e) => e.stopPropagation());
+    const title = document.createElement('div');
+    title.textContent = "VESS HOLLOWAY'S JOURNAL";
+    title.style.cssText = 'letter-spacing:4px;font-size:13px;color:#8a7648;margin-bottom:16px;text-align:center;';
+    inner.appendChild(title);
+    if (!pages.length) {
+      const empty = document.createElement('div');
+      empty.textContent = 'No pages yet. Search the bookshelf in her study — the warm room with the fire.';
+      empty.style.opacity = '0.7';
+      empty.style.fontStyle = 'italic';
+      inner.appendChild(empty);
+    }
+    for (const p of pages) {
+      const div = document.createElement('div');
+      div.textContent = p;
+      div.style.marginBottom = '14px';
+      div.style.fontStyle = 'italic';
+      inner.appendChild(div);
+    }
+    const hint = document.createElement('div');
+    hint.textContent = 'J / ESC — CLOSE';
+    hint.style.cssText = 'margin-top:20px;text-align:center;font-size:11px;letter-spacing:3px;color:#8a7648;font-style:normal;';
+    inner.appendChild(hint);
+    this.journalEl.replaceChildren(inner);
+    this.journalEl.style.display = 'flex';
+    this.journalOpen = true;
+  }
+
+  hideJournal() {
+    this.journalEl.style.display = 'none';
+    this.journalOpen = false;
   }
 
   log(msg: string) {
@@ -119,6 +172,16 @@ export class HUD {
       ctx.beginPath();
       ctx.arc((m.pos.x + 0.5) * cell, (m.pos.y + 0.5) * cell, cell * (m.kind === 'chad' ? 0.45 : 0.3), 0, 7);
       ctx.fill();
+    }
+    // Vess's study — a warm ember dot once you've seen the cell.
+    if (seen.has(`${d.lair.x},${d.lair.y}`)) {
+      ctx.fillStyle = '#ff9030';
+      ctx.fillRect(
+        (d.lair.x + 0.28) * cell,
+        (d.lair.y + 0.28) * cell,
+        cell * 0.44,
+        cell * 0.44
+      );
     }
     // player arrow
     const cx = (px + 0.5) * cell;
