@@ -393,8 +393,8 @@ export class DungeonRenderer {
     // Smoke: green wisps off the brew, grey smoke off the fireplace.
     if (!this.smokeTex) this.smokeTex = this.makeSmokeTexture();
     const smoke: SmokePuff[] = [
-      ...this.makeSmoke(10, ccx, 1.15, ccz, 0x4dff6a, 0.42, 0.45, 1.2, group),
-      ...this.makeSmoke(10, firePos.x, 1.35, firePos.z, 0x8a8a8a, 0.3, 0.55, 1.7, group),
+      ...this.makeSmoke(12, ccx, 1.2, ccz, 0x4dff6a, 0.55, 0.5, 1.6, THREE.AdditiveBlending, group),
+      ...this.makeSmoke(10, firePos.x, 1.35, firePos.z, 0x8a8a8a, 0.3, 0.55, 1.7, THREE.NormalBlending, group),
     ];
 
     // -- Arched doorways: half-torus stone arches + jambs over each opening --
@@ -484,6 +484,7 @@ export class DungeonRenderer {
     maxOp: number,
     vy: number,
     grow: number,
+    blending: THREE.Blending,
     group: THREE.Group
   ): SmokePuff[] {
     const out: SmokePuff[] = [];
@@ -494,6 +495,7 @@ export class DungeonRenderer {
         transparent: true,
         opacity: 0,
         depthWrite: false,
+        blending,
       });
       const sprite = new THREE.Sprite(mat);
       const p: SmokePuff = {
