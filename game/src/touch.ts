@@ -36,13 +36,14 @@ const CSS = `
 #touch .dpad [data-pos="e"] { grid-column: 3; grid-row: 2; }
 /* Actions: attack big, search + turns around it */
 #touch .actions { right: 12px; bottom: 12px; display: grid;
-  grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(2, 64px);
+  grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px);
   gap: 6px; align-items: center; }
 #touch .actions [data-act="atk"] { grid-column: 2; grid-row: 1 / 3; }
 #touch .actions [data-act="tl"] { grid-column: 1; grid-row: 1; }
 #touch .actions [data-act="tr"] { grid-column: 3; grid-row: 1; }
 #touch .actions [data-act="srch"] { grid-column: 1; grid-row: 2; }
 #touch .actions [data-act="jrnl"] { grid-column: 3; grid-row: 2; }
+#touch .actions [data-act="talk"] { grid-column: 2; grid-row: 3; }
 /* Get out of the way of the log + minimap on small screens */
 body.touch #log { bottom: 216px; }
 body.touch #minimap { bottom: 216px; }
