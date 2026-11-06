@@ -143,7 +143,7 @@ export class DungeonRenderer {
     return t;
   }
 
-  /** Sky — saturated bright blue, one big sun, soft clouds. The ceiling is
+  /** Sky — saturated bright blue, one small sun, soft clouds. The ceiling is
    *  rendered UNLIT (MeshBasicMaterial) so the warm sun light can never tint
    *  it yellow-green — what you see is the blue, full stop. */
   private valeSkyTexture(): THREE.CanvasTexture {
@@ -157,20 +157,21 @@ export class DungeonRenderer {
     grad.addColorStop(1, '#7cc4f5');
     g.fillStyle = grad;
     g.fillRect(0, 0, 256, 256);
-    // the sun — big, bright, it never moves, and that is the point
-    const sg = g.createRadialGradient(128, 90, 4, 128, 90, 62);
-    sg.addColorStop(0, 'rgba(255,250,220,1)');
-    sg.addColorStop(0.35, 'rgba(255,240,170,0.95)');
-    sg.addColorStop(0.7, 'rgba(255,225,120,0.55)');
-    sg.addColorStop(1, 'rgba(255,225,120,0)');
+    // the sun — SMALL, round, saturated warm yellow. The old halo (radius
+    // 62, pale cream) bleached half the sky yellow-green whenever you faced
+    // it; the halo is now a tight ring and the disc is gold, not white.
+    const sg = g.createRadialGradient(128, 90, 2, 128, 90, 20);
+    sg.addColorStop(0, 'rgba(255,205,70,0.8)');
+    sg.addColorStop(0.55, 'rgba(255,200,60,0.35)');
+    sg.addColorStop(1, 'rgba(255,200,60,0)');
     g.fillStyle = sg;
     g.beginPath();
-    g.arc(128, 90, 62, 0, 7);
+    g.arc(128, 90, 20, 0, 7);
     g.fill();
     // solid sun disc on top of the glow
-    g.fillStyle = '#fff8d8';
+    g.fillStyle = '#ffd23d';
     g.beginPath();
-    g.arc(128, 90, 20, 0, 7);
+    g.arc(128, 90, 9, 0, 7);
     g.fill();
     // soft clouds
     for (let i = 0; i < 5; i++) {
@@ -361,11 +362,12 @@ export class DungeonRenderer {
     const petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight; beam: THREE.Mesh }> = [];
 
     // The stream — a translucent blue band across the middle. Walkable water:
-    // the god's dream doesn't bother with wet feet.
+    // the god's dream doesn't bother with wet feet. Near-opaque: at 0.6 the
+    // gold grass showed through and the water read murky grey-green.
     const streamMat = new THREE.MeshBasicMaterial({
       color: 0x3f8fd2,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.9,
       depthWrite: false,
     });
     const stream = new THREE.Mesh(
