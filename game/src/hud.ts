@@ -307,7 +307,12 @@ export class HUD {
     this.voiceEl.replaceChildren(inner);
     this.voiceEl.style.display = 'flex';
     this.voiceOpen = true;
-    input.focus();
+    // No autofocus on the text box: the first M after opening would type
+    // into it instead of muting (the hint promises M mutes). Focus the
+    // panel instead, so M / ESC / V work immediately; click or Tab to type.
+    // (Mic auto-listen starts independently in game.ts — untouched.)
+    inner.tabIndex = -1;
+    inner.focus();
   }
 
   hideVoiceTalk() {
