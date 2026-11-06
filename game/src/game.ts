@@ -105,9 +105,9 @@ const LORE = [
   'Wet footprints lead into the wall and do not come out.',
 ];
 
-/** The Vale of First Light — dream-drift lasts one full backwards turn of
- *  the study clock (120s). Then the dream notices you. */
-const VALE_DRIFT_SECONDS = 120;
+/** The Vale of First Light — dream-drift lasts three minutes (a turn and a
+ *  half of the study clock's backwards hands). Then the dream notices you. */
+const VALE_DRIFT_SECONDS = 180;
 
 /** What each sunpetal says when you pick it. */
 const PETAL_LINES: Record<ValeSpot['kind'], string> = {
@@ -189,6 +189,7 @@ export class Game {
   private valePetals = new Set<ValeSpot['kind']>(); // this visit's harvest
   private valeDrift = 0; // seconds left before the dream notices you
   private valeDriftShown = -1; // last whole second pushed to the HUD
+  private valePrompted = new Set<ValeSpot['kind']>(); // petals already hinted, this visit
   private valeCompleted = false; // all three petals, this run — fissure seals
   private valeExitTier = 0; // fissure proximity hints, per visit
   private fissureHinted = false; // per level
@@ -886,6 +887,7 @@ export class Game {
     this.d = generateVale(13, this.valeSaved.dungeon.level);
     this.inVale = true;
     this.valePetals = new Set();
+    this.valePrompted = new Set();
     this.valeDrift = VALE_DRIFT_SECONDS;
     this.valeDriftShown = -1;
     this.valeExitTier = 0;
@@ -939,12 +941,17 @@ export class Game {
     }
   }
 
-  /** Searching in the Vale: pick sunpetals, or read the dream. */
+  /** Searching in the Vale: pick sunpetals, or read the dream. Petals can be
+   *  gathered from the flower's cell or any adjacent cell — the dream is
+   *  generous about reach (was: exact cell only, so standing next to a
+   *  flower and pressing F did nothing). */
   private searchVale() {
     this.audio.search();
-    const spot = (this.d.valeSpots ?? []).find(
-      (s) => s.x === this.px && s.y === this.py && !s.taken
-    );
+    const spot = (this.d.valeSpots ?? [])
+      .filter((s) => !s.taken)
+      .map((s) => ({ s, d: Math.abs(s.x - this.px) + Math.abs(s.y - this.py) }))
+      .filter((e) => e.d <= 1)
+      .sort((a, b) => a.d - b.d)[0]?.s;
     if (spot) {
       spot.taken = true;
       this.valePetals.add(spot.kind);
@@ -1010,6 +1017,18 @@ export class Game {
     // Dream-drift: the Vale forgets you a little at a time. Pauses while
     // the journal or a dialogue is open (update() isn't called then).
     if (this.inVale && !this.over) {
+      // In range of a sunpetal? Say so plainly, once per flower per visit —
+      // no more guessing whether F will do anything.
+      const near = (this.d.valeSpots ?? []).find(
+        (s) =>
+          !s.taken &&
+          !this.valePrompted.has(s.kind) &&
+          Math.abs(s.x - this.px) + Math.abs(s.y - this.py) <= 1
+      );
+      if (near) {
+        this.valePrompted.add(near.kind);
+        this.hud.log('A sunpetal glows here — press F to take it.');
+      }
       this.valeDrift -= dt;
       const whole = Math.max(0, Math.ceil(this.valeDrift));
       if (whole !== this.valeDriftShown) {

@@ -227,7 +227,8 @@ export class HUD {
     div.textContent = msg;
     for (const child of Array.from(this.logEl.children)) child.classList.add('faded');
     this.logEl.prepend(div);
-    while (this.logEl.children.length > 6) this.logEl.lastChild?.remove();
+    // 5 messages max, so the panel (280px) never clips a line mid-glyph.
+    while (this.logEl.children.length > 5) this.logEl.lastChild?.remove();
   }
 
   flash(msg: string, ms = 2200) {
@@ -306,13 +307,22 @@ export class HUD {
         ctx.fillRect(x * cell, y * cell, cell, cell);
       }
     }
-    // Vale sunpetals — gold dots on visited cells, so the hunt reads on the map.
+    // Vale sunpetals — gold dots, ALWAYS shown: the meadow is small and open,
+    // and the hunt reads on the map only if you can see where to go. (Was:
+    // dots only on visited cells, so they never appeared before you were
+    // already standing on the flower.)
     if (d.theme === 'vale') {
       for (const s of d.valeSpots ?? []) {
-        if (s.taken || !seen.has(`${s.x},${s.y}`)) continue;
+        if (s.taken) continue;
+        const dx = (s.x + 0.5) * cell;
+        const dy = (s.y + 0.5) * cell;
+        ctx.fillStyle = 'rgba(255,215,106,0.35)';
+        ctx.beginPath();
+        ctx.arc(dx, dy, cell * 0.85, 0, 7);
+        ctx.fill();
         ctx.fillStyle = '#ffd76a';
         ctx.beginPath();
-        ctx.arc((s.x + 0.5) * cell, (s.y + 0.5) * cell, cell * 0.4, 0, 7);
+        ctx.arc(dx, dy, cell * 0.55, 0, 7);
         ctx.fill();
       }
     }
@@ -335,7 +345,7 @@ export class HUD {
         cell * 0.44
       );
     }
-    // player arrow
+    // player arrow — big enough to read at a glance
     const cx = (px + 0.5) * cell;
     const cy = (py + 0.5) * cell;
     ctx.fillStyle = '#e8d9a0';
@@ -344,9 +354,9 @@ export class HUD {
     // Canvas up = map north. dir: 0=N,1=E,2=S,3=W.
     ctx.rotate([0, Math.PI / 2, Math.PI, -Math.PI / 2][dir]);
     ctx.beginPath();
-    ctx.moveTo(0, -cell * 0.45);
-    ctx.lineTo(cell * 0.3, cell * 0.35);
-    ctx.lineTo(-cell * 0.3, cell * 0.35);
+    ctx.moveTo(0, -cell * 0.6);
+    ctx.lineTo(cell * 0.42, cell * 0.45);
+    ctx.lineTo(-cell * 0.42, cell * 0.45);
     ctx.closePath();
     ctx.fill();
     ctx.restore();

@@ -54,7 +54,7 @@ export class DungeonRenderer {
   /** The Vale of First Light — bright dream-valley built per entry, torn down on exit. */
   private vale: {
     group: THREE.Group;
-    petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight }>;
+    petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight; beam: THREE.Mesh }>;
     streamMat: THREE.MeshBasicMaterial;
     phase: number;
   } | null = null;
@@ -143,33 +143,41 @@ export class DungeonRenderer {
     return t;
   }
 
-  /** Sky — blue gradient, one sun, soft clouds. Repeat 1 (set by the caller). */
+  /** Sky — saturated bright blue, one big sun, soft clouds. The ceiling is
+   *  rendered UNLIT (MeshBasicMaterial) so the warm sun light can never tint
+   *  it yellow-green — what you see is the blue, full stop. */
   private valeSkyTexture(): THREE.CanvasTexture {
     if (this.valeSkyTex) return this.valeSkyTex;
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const g = c.getContext('2d')!;
     const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#6fa8dc');
-    grad.addColorStop(0.6, '#a8c8e8');
-    grad.addColorStop(1, '#d8e8f8');
+    grad.addColorStop(0, '#1f6fd0');
+    grad.addColorStop(0.55, '#3f9ae8');
+    grad.addColorStop(1, '#7cc4f5');
     g.fillStyle = grad;
     g.fillRect(0, 0, 256, 256);
-    // the sun — it never moves, and that is the point
-    const sg = g.createRadialGradient(128, 90, 4, 128, 90, 46);
-    sg.addColorStop(0, 'rgba(255,244,200,1)');
-    sg.addColorStop(0.5, 'rgba(255,230,150,0.85)');
-    sg.addColorStop(1, 'rgba(255,230,150,0)');
+    // the sun — big, bright, it never moves, and that is the point
+    const sg = g.createRadialGradient(128, 90, 4, 128, 90, 62);
+    sg.addColorStop(0, 'rgba(255,250,220,1)');
+    sg.addColorStop(0.35, 'rgba(255,240,170,0.95)');
+    sg.addColorStop(0.7, 'rgba(255,225,120,0.55)');
+    sg.addColorStop(1, 'rgba(255,225,120,0)');
     g.fillStyle = sg;
     g.beginPath();
-    g.arc(128, 90, 46, 0, 7);
+    g.arc(128, 90, 62, 0, 7);
+    g.fill();
+    // solid sun disc on top of the glow
+    g.fillStyle = '#fff8d8';
+    g.beginPath();
+    g.arc(128, 90, 20, 0, 7);
     g.fill();
     // soft clouds
     for (let i = 0; i < 5; i++) {
       const x = Math.random() * 256;
       const y = 150 + Math.random() * 90;
       const cg = g.createRadialGradient(x, y, 2, x, y, 26);
-      cg.addColorStop(0, 'rgba(255,255,255,0.75)');
+      cg.addColorStop(0, 'rgba(255,255,255,0.8)');
       cg.addColorStop(1, 'rgba(255,255,255,0)');
       g.fillStyle = cg;
       g.beginPath();
@@ -183,16 +191,16 @@ export class DungeonRenderer {
     return t;
   }
 
-  /** Gold petal — teardrop, bright center fading to transparent. */
+  /** Gold petal — deep saturated gold, bright center fading to transparent. */
   private makePetalTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 32;
     c.height = 64;
     const g = c.getContext('2d')!;
     const grad = g.createRadialGradient(16, 40, 2, 16, 40, 26);
-    grad.addColorStop(0, 'rgba(255,225,120,1)');
-    grad.addColorStop(0.6, 'rgba(255,190,60,0.9)');
-    grad.addColorStop(1, 'rgba(255,170,30,0)');
+    grad.addColorStop(0, 'rgba(255,215,70,1)');
+    grad.addColorStop(0.6, 'rgba(255,180,30,0.95)');
+    grad.addColorStop(1, 'rgba(255,160,20,0)');
     g.fillStyle = grad;
     g.beginPath();
     g.ellipse(16, 32, 12, 28, 0, 0, Math.PI * 2);
@@ -246,10 +254,10 @@ export class DungeonRenderer {
     this.theme = d.theme;
     this.teardownVale();
 
-    // The Vale is bright: blue sky, pale fog, warm sun. The dungeon stays black.
+    // The Vale is bright: saturated blue sky, blue fog, warm sun. The dungeon stays black.
     if (d.theme === 'vale') {
-      this.scene.background = new THREE.Color(0x9fc8e8);
-      this.scene.fog = new THREE.FogExp2(0xbcd9f0, 0.016);
+      this.scene.background = new THREE.Color(0x3f8fd2);
+      this.scene.fog = new THREE.FogExp2(0x7fb8e8, 0.012);
     } else {
       this.scene.background = new THREE.Color(0x000000);
       this.scene.fog = new THREE.FogExp2(0x000000, 0.055);
@@ -261,7 +269,11 @@ export class DungeonRenderer {
       roughness: 0.95,
       metalness: 0,
     });
-    registerTexMat('wall', wallMat);
+    // Vale materials are NEVER registered in the texture registry: the AI
+    // dungeon PNGs (wall/floor/ceiling.png) preload async and upgradeTex
+    // swaps any registered material's map — that race turned the Vale's gold
+    // grass into cobblestone and its limestone into dark stone on first entry.
+    if (d.theme !== 'vale') registerTexMat('wall', wallMat);
 
     for (let y = 0; y < d.size; y++) {
       for (let x = 0; x < d.size; x++) {
@@ -280,7 +292,7 @@ export class DungeonRenderer {
       map: d.theme === 'vale' ? this.valeFloorTexture() : this.textures.floor,
       roughness: 1,
     });
-    registerTexMat('floor', floorMat);
+    if (d.theme !== 'vale') registerTexMat('floor', floorMat);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(S, S), floorMat);
     floor.material.map!.repeat.set(d.size, d.size);
     floor.rotation.x = -Math.PI / 2;
@@ -289,14 +301,17 @@ export class DungeonRenderer {
     this.scene.add(floor);
     this.wallMeshes.push(floor as unknown as THREE.Mesh);
 
-    const ceilMat = new THREE.MeshStandardMaterial({
-      map: d.theme === 'vale' ? this.valeSkyTexture() : this.textures.ceil,
-      roughness: 1,
-    });
-    registerTexMat('ceil', ceilMat);
+    // The Vale sky is UNLIT (MeshBasicMaterial): no light can tint it, so it
+    // reads blue from every angle. The dungeon ceiling stays lit stone.
+    const ceilMap = d.theme === 'vale' ? this.valeSkyTexture() : this.textures.ceil;
+    if (d.theme === 'vale') ceilMap.repeat.set(1, 1); // one sun, not thirteen
+    else ceilMap.repeat.set(d.size, d.size);
+    const ceilMat =
+      d.theme === 'vale'
+        ? new THREE.MeshBasicMaterial({ map: ceilMap })
+        : new THREE.MeshStandardMaterial({ map: ceilMap, roughness: 1 });
+    if (d.theme !== 'vale') registerTexMat('ceil', ceilMat as THREE.MeshStandardMaterial);
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(S, S), ceilMat);
-    if (d.theme === 'vale') ceil.material.map!.repeat.set(1, 1); // one sun, not thirteen
-    else ceil.material.map!.repeat.set(d.size, d.size);
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set((S - CELL) / 2, WALL_H, (S - CELL) / 2);
     ceil.name = 'ceil';
@@ -305,11 +320,11 @@ export class DungeonRenderer {
 
     if (d.theme === 'vale') {
       // Warm sun overhead — the dungeon's torch is a candle next to it.
-      const sun = new THREE.DirectionalLight(0xffe9b0, 2.2);
+      const sun = new THREE.DirectionalLight(0xffe9b0, 2.6);
       sun.position.set(S / 2, 20, S / 2 - 10);
       this.scene.add(sun);
       this.wallMeshes.push(sun as unknown as THREE.Mesh);
-      const skyFill = new THREE.AmbientLight(0xfff2cc, 1.6);
+      const skyFill = new THREE.AmbientLight(0xfff2cc, 1.8);
       this.scene.add(skyFill);
       this.wallMeshes.push(skyFill as unknown as THREE.Mesh);
       this.buildVale(d);
@@ -343,7 +358,7 @@ export class DungeonRenderer {
   private buildVale(d: Dungeon) {
     const group = new THREE.Group();
     const S = d.size * CELL;
-    const petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight }> = [];
+    const petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight; beam: THREE.Mesh }> = [];
 
     // The stream — a translucent blue band across the middle. Walkable water:
     // the god's dream doesn't bother with wet feet.
@@ -361,7 +376,8 @@ export class DungeonRenderer {
     stream.position.set((S - CELL) / 2, 0.03, (d.streamRow ?? 6) * CELL);
     group.add(stream);
 
-    // Sunpetals — golden flowers, one per spot, glowing until picked.
+    // Sunpetals — big golden flowers, one per spot, glowing until picked.
+    // Each stands in a tall golden beam so you can spot it across the valley.
     if (!this.petalTex) this.petalTex = this.makePetalTexture();
     for (const spot of d.valeSpots ?? []) {
       if (spot.taken) continue;
@@ -375,30 +391,44 @@ export class DungeonRenderer {
         side: THREE.DoubleSide,
         depthWrite: false,
       });
-      for (let i = 0; i < 5; i++) {
-        const petal = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.42), petalMat);
-        const a = (i / 5) * Math.PI * 2;
-        petal.position.set(Math.cos(a) * 0.14, 0.55, Math.sin(a) * 0.14);
+      for (let i = 0; i < 7; i++) {
+        const petal = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.95), petalMat);
+        const a = (i / 7) * Math.PI * 2;
+        petal.position.set(Math.cos(a) * 0.3, 1.05, Math.sin(a) * 0.3);
         petal.rotation.set(-0.5, -a + Math.PI / 2, 0);
         pg.add(petal);
       }
       const heart = new THREE.Mesh(
-        new THREE.SphereGeometry(0.09, 10, 10),
-        new THREE.MeshBasicMaterial({ color: 0xffe9a0 })
+        new THREE.SphereGeometry(0.18, 12, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffc93a })
       );
-      heart.position.y = 0.55;
+      heart.position.y = 1.05;
       pg.add(heart);
       const stem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.02, 0.03, 0.55, 6),
+        new THREE.CylinderGeometry(0.04, 0.06, 1.0, 6),
         new THREE.MeshStandardMaterial({ color: 0x3a7a2a, roughness: 1 })
       );
-      stem.position.y = 0.27;
+      stem.position.y = 0.5;
       pg.add(stem);
-      const light = new THREE.PointLight(0xffd76a, 8, 9, 1.8);
-      light.position.set(cx, 1.2, cz);
+      const light = new THREE.PointLight(0xffd76a, 14, 13, 1.8);
+      light.position.set(cx, 1.6, cz);
       group.add(light);
+      // Golden beam — a shaft of light marking the flower from anywhere.
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.28, 0.45, WALL_H, 10, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: 0xffd76a,
+          transparent: true,
+          opacity: 0.22,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      );
+      beam.position.set(cx, WALL_H / 2, cz);
+      group.add(beam);
       group.add(pg);
-      petals.push({ kind: spot.kind, group: pg, light });
+      petals.push({ kind: spot.kind, group: pg, light, beam });
     }
 
     // The fissure back — a shaft of warm gold where the exit would be,
@@ -449,13 +479,16 @@ export class DungeonRenderer {
     this.vale = null;
   }
 
-  /** Remove one sunpetal's flower + glow when it is picked. */
+  /** Remove one sunpetal's flower + glow + beam when it is picked. */
   takePetal(kind: string) {
     if (!this.vale) return;
     const p = this.vale.petals.find((e) => e.kind === kind);
     if (!p) return;
     this.vale.group.remove(p.group);
     this.vale.group.remove(p.light);
+    this.vale.group.remove(p.beam);
+    p.beam.geometry.dispose();
+    (p.beam.material as THREE.Material).dispose();
     p.group.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
@@ -1079,7 +1112,7 @@ export class DungeonRenderer {
       for (const p of V.petals) {
         p.group.rotation.y += dt * 0.4;
         p.group.position.y = Math.sin(V.phase * 1.8 + p.group.position.x) * 0.05;
-        p.light.intensity = 8 + Math.sin(V.phase * 2.2) * 1.5;
+        p.light.intensity = 14 + Math.sin(V.phase * 2.2) * 2;
       }
     }
     // The study fire: flicker + dancing flames + rising embers.

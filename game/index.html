@@ -18,10 +18,10 @@
       #hpbar { height: 100%; width: 100%; background: linear-gradient(90deg, #a31212, #e04040); transition: width .3s; }
       #minimap { position: absolute; right: 16px; bottom: 16px; border: 1px solid #6b5320;
         background: rgba(0,0,0,.75); }
-      #log { position: absolute; left: 16px; bottom: 16px; width: 340px; max-height: 180px;
+      #log { position: absolute; left: 16px; bottom: 16px; width: min(440px, 60vw); max-height: 280px;
         overflow: hidden; color: #cdb87a; font-size: 13px; line-height: 1.5;
         text-shadow: 0 1px 2px #000; }
-      #log div { margin-top: 4px; opacity: .95; }
+      #log div { margin-top: 4px; opacity: .95; white-space: normal; overflow-wrap: break-word; }
       #log div.faded { opacity: .45; }
       #center-msg { position: absolute; top: 38%; left: 0; right: 0; text-align: center;
         color: #e8d9a0; font-size: 22px; letter-spacing: 3px; text-shadow: 0 0 12px #000;
