@@ -58,7 +58,10 @@ export class GameAudio {
       if (!AC) return;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
+      // Respect a mute set before the context existed (e.g. the speaker
+      // button toggled before any keydown): creating the context must not
+      // resurrect the gain to 0.5 while the game is muted.
+      this.master.gain.value = this.muted ? 0 : 0.5;
       this.master.connect(this.ctx.destination);
       // Shared noise buffer (2s white noise).
       const len = this.ctx.sampleRate * 2;

@@ -6,6 +6,12 @@ import { makeTextures, TextureSet, registerTexMat, resetTexRegistry } from './te
 
 export const CELL = 4; // world units per grid cell
 const WALL_H = 4;
+// The Vale's sky sits higher than its ruin walls (WALL_H) so the dragon
+// can cruise ABOVE the wall tops and stay visible: at y=4 the dragon's
+// body was wall-top height and the walls hid it for minutes at a time.
+// The gap between the wall tops (4) and this ceiling reads as open sky —
+// the scene background behind it is the same blue.
+const VALE_CEIL_H = 7;
 
 /** One drifting smoke puff — a sprite that rises, grows, and fades. */
 interface SmokePuff {
@@ -174,9 +180,15 @@ export class DungeonRenderer {
     c.width = c.height = 256;
     const g = c.getContext('2d')!;
     const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#1f6fd0');
+    // Deep blue to the NORTH (canvas bottom = v=0 = world -Z, where the
+    // sun sits and the player spawns facing): the first frame at spawn is
+    // already vivid blue. The pale end faces south, behind the player.
+    // (The old orientation put the pale end north — the spawn view read as
+    // washed-out sage-grey until the player turned around. There is no
+    // fade-in in the code; that pale first impression WAS the gradient.)
+    grad.addColorStop(0, '#7cc4f5');
     grad.addColorStop(0.55, '#3f9ae8');
-    grad.addColorStop(1, '#7cc4f5');
+    grad.addColorStop(1, '#1f6fd0');
     g.fillStyle = grad;
     g.fillRect(0, 0, 256, 256);
     // soft clouds
@@ -343,7 +355,9 @@ export class DungeonRenderer {
     if (d.theme !== 'vale') registerTexMat('ceil', ceilMat as THREE.MeshStandardMaterial);
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(S, S), ceilMat);
     ceil.rotation.x = Math.PI / 2;
-    ceil.position.set((S - CELL) / 2, WALL_H, (S - CELL) / 2);
+    // The Vale ceiling rides high (VALE_CEIL_H) so the dragon can cruise
+    // above the ruin walls; the dungeon ceiling stays at wall height.
+    ceil.position.set((S - CELL) / 2, d.theme === 'vale' ? VALE_CEIL_H : WALL_H, (S - CELL) / 2);
     ceil.name = 'ceil';
     this.scene.add(ceil);
     this.wallMeshes.push(ceil as unknown as THREE.Mesh);
@@ -441,14 +455,15 @@ export class DungeonRenderer {
     }
     neck.add(head);
     bank.add(neck);
-    // Tail — short and thick now, so it stops dominating the silhouette.
-    // Two tapering segments + a spade, trailing behind.
+    // Tail — a short stub now, thick enough to read as a tail. The old
+    // 2-segment + spade tail read as a long tapered spike from above even
+    // though it looked short from the side; total length is now ~0.75
+    // against a 2.4 body.
     const tail = new THREE.Group();
     tail.position.set(-1.05, 0, 0);
     let tx = 0;
     const segs: Array<[number, number, number]> = [
-      [0.16, 0.12, 0.55],
-      [0.12, 0.08, 0.5],
+      [0.2, 0.16, 0.45],
     ];
     for (const [r1, r2, len] of segs) {
       const seg = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, len, 8), bodyMat);
@@ -457,10 +472,10 @@ export class DungeonRenderer {
       tail.add(seg);
       tx -= len;
     }
-    const spade = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 4), bodyMat);
+    const spade = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.3, 4), bodyMat);
     spade.rotation.z = Math.PI / 2;
     spade.scale.set(1, 1, 0.4);
-    spade.position.set(tx - 0.24, -0.14, 0);
+    spade.position.set(tx - 0.14, -0.14, 0);
     tail.add(spade);
     bank.add(tail);
     // Wings — bat-wing membranes on shoulder pivots. The wingspan (~9
@@ -1346,27 +1361,33 @@ export class DungeonRenderer {
       D.angle += dt * ((Math.PI * 2) / 55);
       const dx = D.cx + D.radius * Math.cos(D.angle);
       const dz = D.cz + D.radius * Math.sin(D.angle);
-      // High in the sky — body ~1.3 above eye level, head and wingtips
-      // budgeted to stay under the y=4 ceiling (see the node check).
-      const dy = 3.0 + 0.1 * Math.sin(D.angle * 2 + 1.3);
+      // High in the sky — the body cruises at y≈4.8, ABOVE the 4-tall
+      // ruin walls, under the y=7 Vale ceiling (see the node check):
+      // lowest wingtip ~2.9, highest wingtip ~6.8, head ~6.4. At y≈3.0
+      // the dragon WAS wall-top height and the walls hid it for minutes.
+      const dy = 4.8 + 0.1 * Math.sin(D.angle * 2 + 1.3);
       D.group.position.set(dx, dy, dz);
       // Face the flight tangent: velocity (-sin, cos) in (x, z).
       D.group.rotation.y = Math.atan2(-Math.cos(D.angle), -Math.sin(D.angle));
-      // The circle's center sits on the dragon's right — it banks right,
-      // hard: a 9-unit wingspan rolled 0.5 rad drops one tip ~2 units
-      // below the other. Unmistakable at distance.
-      D.bank.rotation.x = 0.5;
-      // Wingbeats: bursts of fast flaps (~0.9 Hz) with long glides
-      // between. The old envelope flapped once per ~6s — it read as static.
-      const burst = Math.pow(Math.max(0, Math.sin(V.phase * 0.55)), 2);
-      const beat = 0.5 + 0.5 * Math.sin(V.phase * 5.5);
-      const flap = 0.06 + 0.38 * burst * beat;
-      // Wings hold a dihedral (tips drooped ~0.4 rad) so the broad membrane
+      // The circle's center sits on the dragon's right — it banks right.
+      // 0.3 rad: the roll reads at distance without dropping a wingtip
+      // near the grass (the old 0.5 rad + 0.4 dihedral put a tip at y≈0.2).
+      D.bank.rotation.x = 0.3;
+      // Wingbeats: a readable rhythm — 3 strong beats (~1.2 Hz) then a
+      // 4s glide, on a 6.5s cycle. The flap is a raised cosine over the
+      // beat window, so it starts and ends at the glide value (0.06) with
+      // no snap. The old slow envelope read as static gliding.
+      const cyc = V.phase % 6.5;
+      let flap = 0.06;
+      if (cyc < 2.5) {
+        flap = 0.06 + 0.32 * (0.5 - 0.5 * Math.cos(cyc * Math.PI * 2 * 1.2));
+      }
+      // Wings hold a dihedral (tips drooped ~0.3 rad) so the broad membrane
       // faces the ground — flat wings read edge-on as sticks from below.
       // The flap lifts the tips from the droop; at full beat they rise
       // just past level, never above the ceiling.
-      D.wingR.rotation.x = 0.4 - flap;
-      D.wingL.rotation.x = -0.4 + flap;
+      D.wingR.rotation.x = 0.3 - flap;
+      D.wingL.rotation.x = -0.3 + flap;
       D.neck.rotation.y = 0.1 * Math.sin(V.phase * 0.6);
       D.tail.rotation.y = 0.12 * Math.sin(V.phase * 0.6 - 1.2);
       // Its shadow slides over the gold grass below, long axis along the heading.
