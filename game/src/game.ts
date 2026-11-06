@@ -39,6 +39,7 @@ import {
 } from './dialogue';
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio, VessVoiceKind } from './audio';
+import { VessVoice, VessTurn } from './vess-voice';
 import { initTouchControls, isTouchDevice } from './touch';
 import { journalPage, VALE_PAGE } from './lore';
 
@@ -193,6 +194,18 @@ export class Game {
   private valeCompleted = false; // all three petals, this run — fissure seals
   private valeExitTier = 0; // fissure proximity hints, per visit
   private fissureHinted = false; // per level
+  // Vess's echo, spoken aloud — press V in her study to talk. Mic in via
+  // Web Speech, replies out via speechSynthesis, brain in /api/vess.
+  private vessVoice = new VessVoice({
+    log: (m) => this.hud.log(m),
+    isMuted: () => this.audio.isMuted(),
+  });
+  private vessTalkHistory: VessTurn[] = [];
+  private vessTalkListening = false;
+  private vessStudyNarrated = false; // ambient lines, once per run each
+  private vessJournalNarrated = false;
+  private vessValeNarrated = false;
+  private vessOfflineNoted = false; // "the echo is faint" — once per session
 
   constructor(container: HTMLElement) {
     this.renderer = new DungeonRenderer(container);
@@ -212,6 +225,7 @@ export class Game {
       try {
         const saved = localStorage.getItem(MUTE_KEY) === '1';
         this.audio.setMuted(saved);
+        this.vessVoice.setMuted(saved);
         this.hud.setMuted(saved);
       } catch {
         /* best-effort */
@@ -244,6 +258,16 @@ export class Game {
     addEventListener('keydown', (e) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
       if (e.repeat) return;
+      // Typing in Vess's voice-talk box: keys belong to the input, not the
+      // dungeon. Escape closes the talk; everything else types.
+      const ae = document.activeElement;
+      if (ae && ae.id === 'vess-voice-input') {
+        if (e.key === 'Escape') {
+          (ae as HTMLInputElement).blur();
+          this.closeVoiceTalk();
+        }
+        return;
+      }
       // Title up: Enter/Space descends even when the title box isn't focused.
       if (!this.started && (e.key === 'Enter' || e.key === ' ')) {
         dismissTitle();
@@ -329,8 +353,9 @@ export class Game {
     const loop = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      // Journal open = the delver is reading; the dungeon waits.
-      if (this.started && !this.over && !this.hud.isJournalOpen() && !this.hud.isDialogueOpen()) this.update(dt);
+      // Journal open = the delver is reading; the dungeon waits. Same for
+      // a dialogue or a voice talk with Vess's echo.
+      if (this.started && !this.over && !this.hud.isJournalOpen() && !this.hud.isDialogueOpen() && !this.hud.isVoiceTalkOpen()) this.update(dt);
       this.renderer.update(dt);
       this.renderer.render();
       requestAnimationFrame(loop);
@@ -428,6 +453,11 @@ export class Game {
     if (inLair(this.d, nx, ny) && !this.lairGreeted) {
       this.lairGreeted = true;
       this.hud.log("Vess's study. Dust, old paper — and a fire that never goes out.");
+      // She narrates: first study entry each run, her echo greets you.
+      if (!this.vessStudyNarrated) {
+        this.vessStudyNarrated = true;
+        this.vessVoice.narrate('study');
+      }
     }
     // The fissure hums underfoot — warm light from a crack in the floor.
     if (this.d.lair && nx === this.d.lair.cx && ny === this.d.lair.cy && !this.fissureHinted) {
@@ -522,6 +552,17 @@ export class Game {
 
   private handleKey(k: string) {
     if (!this.started || this.over) return;
+    // Voice talk open: the echo has the floor. V / ESC closes; nothing else
+    // moves the delver while she is speaking.
+    if (this.hud.isVoiceTalkOpen()) {
+      if (k === 'v' || k === 'escape') this.closeVoiceTalk();
+      return;
+    }
+    // V — speak to Vess's echo (in her study only).
+    if (k === 'v') {
+      if (!this.hud.isDialogueOpen() && !this.hud.isJournalOpen()) this.openVoiceTalk();
+      return;
+    }
     // Overlays capture input while open.
     if (k === 'j' || k === 't' || k === 'escape') {
       if (this.hud.isDialogueOpen()) {
@@ -647,10 +688,12 @@ export class Game {
     }
   }
 
-  /** Mute toggle — M key or the speaker button. Persists across sessions. */
+  /** Mute toggle — M key or the speaker button. Persists across sessions.
+   *  Mutes Vess's spoken replies too (and cuts her off mid-sentence). */
   private toggleMute() {
     const muted = !this.audio.isMuted();
     this.audio.setMuted(muted);
+    this.vessVoice.setMuted(muted);
     this.hud.setMuted(muted);
     try {
       localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
@@ -658,6 +701,92 @@ export class Game {
       /* best-effort */
     }
     this.hud.log(muted ? 'Muted. The dungeon holds its breath.' : 'Sound on. The dungeon exhales.');
+  }
+
+  /** Press V in her study: open voice talk with Vess's echo. Mic first
+   *  (Web Speech, free), text box as the fallback when there is no mic. */
+  private openVoiceTalk() {
+    if (this.inVale) {
+      this.hud.log('The Vale hums the same note. Vess only answers in her study.');
+      return;
+    }
+    if (!inLair(this.d, this.px, this.py)) {
+      this.hud.log('No echo here. Vess answers in her study — the warm room with the fire. (Press V there.)');
+      return;
+    }
+    this.vessTalkHistory = [];
+    this.hud.showVoiceTalk({
+      onListen: () => void this.vessListenTurn(),
+      onSubmit: (text) => void this.vessTextTurn(text),
+      onClose: () => this.closeVoiceTalk(),
+    });
+    if (this.vessVoice.canListen()) {
+      this.hud.setVoiceStatus('Vess is listening…');
+      void this.vessListenTurn();
+    } else {
+      this.hud.setVoiceStatus('No microphone in this browser — type below.');
+    }
+  }
+
+  private closeVoiceTalk() {
+    this.vessVoice.stopListening();
+    this.vessVoice.stopSpeaking();
+    this.hud.hideVoiceTalk();
+  }
+
+  /** One mic turn: listen, answer, then listen again for the next turn.
+   *  Any failure (denied mic, silence, no speech) drops to the text box. */
+  private async vessListenTurn() {
+    if (!this.hud.isVoiceTalkOpen() || this.vessTalkListening) return;
+    this.vessTalkListening = true;
+    this.hud.setVoiceStatus('Vess is listening…');
+    const heard = await this.vessVoice.listenOnce();
+    this.vessTalkListening = false;
+    if (!this.hud.isVoiceTalkOpen()) return;
+    if (!heard) {
+      this.hud.setVoiceStatus('I didn’t catch that — type it below, or tap 🎙 to listen again.');
+      return;
+    }
+    await this.vessAnswerTurn(heard);
+    // Voice conversation: keep the mic open for the next turn.
+    if (this.hud.isVoiceTalkOpen() && this.vessVoice.canListen()) void this.vessListenTurn();
+  }
+
+  /** One typed turn: answer, then wait — no auto-listen after typing. */
+  private async vessTextTurn(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    await this.vessAnswerTurn(t);
+    if (this.hud.isVoiceTalkOpen()) {
+      this.hud.setVoiceStatus(
+        this.vessVoice.canListen()
+          ? 'Tap 🎙 to listen again, or type below.'
+          : 'Type below — no microphone in this browser.'
+      );
+    }
+  }
+
+  /** One exchange: show it, ask (AI, else the offline echo), speak the reply. */
+  private async vessAnswerTurn(text: string) {
+    this.hud.appendVoiceLine('You', text);
+    this.hud.log(`You: ${text}`);
+    this.hud.setVoiceStatus('Vess is thinking…');
+    const { reply, source } = await this.vessVoice.ask(text, this.vessTalkHistory);
+    if (!this.hud.isVoiceTalkOpen()) return; // closed mid-thought — don't speak into the void
+    this.vessTalkHistory.push(
+      { role: 'user', content: text },
+      { role: 'assistant', content: reply }
+    );
+    if (this.vessTalkHistory.length > 6) {
+      this.vessTalkHistory.splice(0, this.vessTalkHistory.length - 6);
+    }
+    if (source === 'offline' && !this.vessOfflineNoted) {
+      this.vessOfflineNoted = true;
+      this.hud.log('The echo is faint — the deeper voice is quiet. Vess answers from memory until it is set.');
+    }
+    this.hud.appendVoiceLine('Vess', reply, source === 'offline');
+    this.hud.log(`Vess: ${reply}`);
+    this.vessVoice.speak(reply);
   }
 
   /** Press T: talk to Chad if he's near, else to Vess's echo if in her study. */
@@ -829,6 +958,11 @@ export class Game {
       this.journal.push(page);
       this.audio.find();
       this.hud.log('You pull a loose journal from the shelf. Page kept — press J to read.');
+      // She narrates: first journal page each run.
+      if (!this.vessJournalNarrated) {
+        this.vessJournalNarrated = true;
+        this.vessVoice.narrate('journal');
+      }
     } else if (!this.d.lairTaken.has('table')) {
       this.d.lairTaken.add('table');
       this.hp = Math.min(this.maxHp, this.hp + 6);
@@ -903,6 +1037,11 @@ export class Game {
     this.hud.flash('THE VALE OF FIRST LIGHT', 3000);
     this.hud.log('Warm light. Gold grass. The ticking in your ears turns around — for the first time in fifty years, time runs forward.');
     this.hud.log('Three sunpetals grow here: one by the stream, one in the ruins, one on the high ridge. Gather them before the dream notices you.');
+    // She narrates: first Vale entry each run.
+    if (!this.vessValeNarrated) {
+      this.vessValeNarrated = true;
+      this.vessVoice.narrate('vale');
+    }
   }
 
   /** Leave the Vale — through the golden shaft, or waking when the drift ends.

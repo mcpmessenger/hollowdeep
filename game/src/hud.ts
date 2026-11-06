@@ -18,6 +18,14 @@ export class HUD {
   private dialogueEl: HTMLElement;
   private dialogueOpen = false;
   private dialogueOnChoice: ((id: string) => void) | null = null;
+  private voiceEl: HTMLElement;
+  private voiceOpen = false;
+  private voiceTranscript: HTMLElement | null = null;
+  private voiceStatus: HTMLElement | null = null;
+  private voiceInput: HTMLInputElement | null = null;
+  private voiceOnListen: (() => void) | null = null;
+  private voiceOnSubmit: ((text: string) => void) | null = null;
+  private voiceOnClose: (() => void) | null = null;
   private muteBtn: HTMLButtonElement;
   private onMuteToggle: (() => void) | null = null;
   private valeEl: HTMLElement;
@@ -68,6 +76,13 @@ export class HUD {
       'position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;' +
       'background:rgba(0,0,0,0.72);pointer-events:auto;';
     document.body.appendChild(this.dialogueEl);
+    // Vess's voice talk — press V in her study. Same overlay pattern, with a
+    // live transcript, a status line, and a text box for when the mic fails.
+    this.voiceEl = document.createElement('div');
+    this.voiceEl.style.cssText =
+      'position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;' +
+      'background:rgba(0,0,0,0.72);pointer-events:auto;';
+    document.body.appendChild(this.voiceEl);
   }
 
   /** Vess's collected journal pages. Toggle with J. */
@@ -200,6 +215,117 @@ export class HUD {
     this.dialogueEl.style.display = 'none';
     this.dialogueOpen = false;
     this.dialogueOnChoice = null;
+  }
+
+  /** Vess's voice talk — press V in her study. Mic (Web Speech) + text
+   *  fallback. The overlay owns the transcript; game.ts owns the flow. */
+  isVoiceTalkOpen(): boolean {
+    return this.voiceOpen;
+  }
+
+  showVoiceTalk(opts: {
+    onListen: () => void;
+    onSubmit: (text: string) => void;
+    onClose: () => void;
+  }) {
+    this.voiceOnListen = opts.onListen;
+    this.voiceOnSubmit = opts.onSubmit;
+    this.voiceOnClose = opts.onClose;
+    const inner = document.createElement('div');
+    inner.style.cssText =
+      'max-width:560px;width:88vw;background:#14100b;border:1px solid #6b5320;' +
+      'padding:28px 32px;color:#d8c690;font-size:15px;line-height:1.7;' +
+      'box-shadow:0 0 60px rgba(0,0,0,0.9);';
+    const head = document.createElement('div');
+    head.textContent = 'VESS HOLLOWAY';
+    head.style.cssText = 'letter-spacing:4px;font-size:15px;color:#d8c690;';
+    inner.appendChild(head);
+    const sub = document.createElement('div');
+    sub.textContent = 'THE ECHO ANSWERS · SPEAK, OR TYPE';
+    sub.style.cssText =
+      'font-size:11px;letter-spacing:3px;color:#8a7648;margin-bottom:16px;';
+    inner.appendChild(sub);
+    const status = document.createElement('div');
+    status.style.cssText = 'font-style:italic;color:#b8a05e;margin-bottom:12px;';
+    inner.appendChild(status);
+    this.voiceStatus = status;
+    const transcript = document.createElement('div');
+    transcript.style.cssText =
+      'max-height:240px;overflow-y:auto;margin-bottom:16px;padding-right:6px;';
+    inner.appendChild(transcript);
+    this.voiceTranscript = transcript;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;';
+    const input = document.createElement('input');
+    input.id = 'vess-voice-input';
+    input.type = 'text';
+    input.placeholder = 'Ask Vess… (the clock, the Vale, Chad, the way down)';
+    input.setAttribute('aria-label', 'Ask Vess');
+    input.style.cssText =
+      'flex:1;padding:10px 12px;background:#1e1810;color:#d8c690;border:1px solid #6b5320;' +
+      'font-size:14px;font-family:inherit;outline:none;';
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (text) {
+          input.value = '';
+          this.voiceOnSubmit && this.voiceOnSubmit(text);
+        }
+      }
+    });
+    row.appendChild(input);
+    this.voiceInput = input;
+    const listenBtn = document.createElement('button');
+    listenBtn.textContent = '🎙';
+    listenBtn.title = 'Listen (microphone)';
+    listenBtn.style.cssText =
+      'padding:10px 14px;background:#1e1810;color:#d8c690;border:1px solid #6b5320;' +
+      'cursor:pointer;font-size:16px;';
+    listenBtn.addEventListener('click', () => this.voiceOnListen && this.voiceOnListen());
+    row.appendChild(listenBtn);
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Close';
+    closeBtn.style.cssText =
+      'padding:10px 14px;background:#1e1810;color:#d8c690;border:1px solid #6b5320;' +
+      'cursor:pointer;font-size:14px;font-family:inherit;';
+    closeBtn.addEventListener('click', () => this.voiceOnClose && this.voiceOnClose());
+    row.appendChild(closeBtn);
+    inner.appendChild(row);
+    const hint = document.createElement('div');
+    hint.textContent = 'V / ESC — CLOSE · M — MUTE';
+    hint.style.cssText =
+      'margin-top:20px;text-align:center;font-size:11px;letter-spacing:3px;color:#8a7648;';
+    inner.appendChild(hint);
+    this.voiceEl.replaceChildren(inner);
+    this.voiceEl.style.display = 'flex';
+    this.voiceOpen = true;
+    input.focus();
+  }
+
+  hideVoiceTalk() {
+    this.voiceEl.style.display = 'none';
+    this.voiceOpen = false;
+    this.voiceOnListen = null;
+    this.voiceOnSubmit = null;
+    this.voiceOnClose = null;
+    this.voiceTranscript = null;
+    this.voiceStatus = null;
+    this.voiceInput = null;
+  }
+
+  setVoiceStatus(text: string) {
+    if (this.voiceStatus) this.voiceStatus.textContent = text;
+  }
+
+  /** One transcript line. faint = the offline echo, not the AI — labelled. */
+  appendVoiceLine(who: 'You' | 'Vess', text: string, faint = false) {
+    if (!this.voiceTranscript) return;
+    const div = document.createElement('div');
+    div.textContent = `${who}${faint ? ' (faint echo)' : ''}: ${text}`;
+    div.style.cssText = who === 'Vess' ? 'font-style:italic;margin-bottom:10px;' : 'margin-bottom:10px;opacity:0.85;';
+    this.voiceTranscript.appendChild(div);
+    this.voiceTranscript.scrollTop = this.voiceTranscript.scrollHeight;
   }
 
   /** Mute button wiring. */
