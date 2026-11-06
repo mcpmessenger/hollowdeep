@@ -52,6 +52,13 @@ interface Best {
 const BEST_KEY = 'hollowdeep.best.v1';
 const MUTE_KEY = 'hollowdeep.muted.v1';
 
+/** The hash part of the URL, robust to a query string riding inside or
+ *  before it — '#vale?v=7d38a30' (cache-buster) and '?v=7d38a30#vale'
+ *  both mean '#vale'. */
+function hashName(): string {
+  return location.hash.split('?')[0];
+}
+
 function loadBest(): Best | null {
   try {
     const raw = localStorage.getItem(BEST_KEY);
@@ -258,6 +265,17 @@ export class Game {
     });
 
     addEventListener('keydown', (e) => {
+      // Any keypress is a user gesture — (re)unlock audio. The #vale/#lair
+      // test hooks bypass the title click that normally unlocks it, so
+      // without this the AudioContext is never created and no sound ever
+      // plays (the dragon's cry logged while nothing could be heard).
+      // unlock() is idempotent; the Vale's breeze + bird song also gate on
+      // a running context, so restart them now that audio is live.
+      this.audio.unlock();
+      if (this.inVale) {
+        this.audio.startBreeze();
+        this.audio.startValeBirds();
+      }
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
       if (e.repeat) return;
       // Typing in Vess's voice-talk box: keys belong to the input, not the
@@ -286,7 +304,7 @@ export class Game {
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
 
     // Autotest hook: #autotest runs a scripted playthrough for headless verification.
-    if (location.hash === '#autotest') {
+    if (hashName() === '#autotest') {
       setTimeout(() => {
         document.getElementById('title')!.style.display = 'none';
         this.started = true;
@@ -305,7 +323,7 @@ export class Game {
     }
 
     // Test hook: #chad drops a Chad near spawn for dialogue verification.
-    if (location.hash === '#chad') {
+    if (hashName() === '#chad') {
       setTimeout(() => {
         document.getElementById('title')!.style.display = 'none';
         this.started = true;
@@ -323,7 +341,7 @@ export class Game {
       }, 800);
     }
     // Test hook: #lair teleports to Vess's study for visual verification.
-    if (location.hash === '#lair') {
+    if (hashName() === '#lair') {
       setTimeout(() => {
         document.getElementById('title')!.style.display = 'none';
         this.started = true;
@@ -337,7 +355,7 @@ export class Game {
       }, 800);
     }
     // Test hook: #vale walks straight into the Vale from the study.
-    if (location.hash === '#vale') {
+    if (hashName() === '#vale') {
       setTimeout(() => {
         document.getElementById('title')!.style.display = 'none';
         this.started = true;
@@ -1180,13 +1198,19 @@ export class Game {
         this.hud.setVale(this.valeStatus(), this.valeDrift <= 30);
       }
       // The dragon that never lands — a distant cry, rare, across the valley.
+      // The log line fires ONLY when the cry actually sounded: dragonCry()
+      // returns false while the AudioContext is still suspended (no gesture
+      // yet), so retry in a few seconds instead of logging a cry nobody heard.
       this.valeCryIn -= dt;
       if (this.valeCryIn <= 0) {
-        this.valeCryIn = 28 + Math.random() * 22; // every ~30–50s
-        this.audio.dragonCry();
-        if (!this.valeCryHeard) {
-          this.valeCryHeard = true;
-          this.hud.log('Far above, something vast cries out — and keeps circling.');
+        if (this.audio.dragonCry()) {
+          this.valeCryIn = 28 + Math.random() * 22; // every ~30–50s
+          if (!this.valeCryHeard) {
+            this.valeCryHeard = true;
+            this.hud.log('Far above, something vast cries out — and keeps circling.');
+          }
+        } else {
+          this.valeCryIn = 5; // audio not live yet — retry soon
         }
       }
       if (this.valeDrift <= 0) {

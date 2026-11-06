@@ -71,6 +71,10 @@ export class DungeonRenderer {
       cz: number;
       radius: number;
     };
+    /** The sun — a camera-facing sprite riding the northern sky (see
+     *  buildVale). It is positioned from the camera every frame, never
+     *  painted on the ceiling. */
+    sun: THREE.Sprite;
   } | null = null;
   private theme: 'dungeon' | 'vale' = 'dungeon';
   private smokeTex: THREE.CanvasTexture | null = null;
@@ -157,9 +161,13 @@ export class DungeonRenderer {
     return t;
   }
 
-  /** Sky — saturated bright blue, one small sun, soft clouds. The ceiling is
-   *  rendered UNLIT (MeshBasicMaterial) so the warm sun light can never tint
-   *  it yellow-green — what you see is the blue, full stop. */
+  /** Sky — saturated bright blue, soft clouds. NO sun painted here: the
+   *  sun is a camera-facing sprite (see buildVale). Paint on the horizontal
+   *  ceiling can never look round — the fixed-pitch camera always sees the
+   *  ceiling at a grazing angle, so a painted circle foreshortens into a
+   *  huge flat 4:1 ellipse with a halo that bleaches the sky. The ceiling
+   *  is rendered UNLIT (MeshBasicMaterial) so the warm sun light can never
+   *  tint it yellow-green — what you see is the blue, full stop. */
   private valeSkyTexture(): THREE.CanvasTexture {
     if (this.valeSkyTex) return this.valeSkyTex;
     const c = document.createElement('canvas');
@@ -171,22 +179,6 @@ export class DungeonRenderer {
     grad.addColorStop(1, '#7cc4f5');
     g.fillStyle = grad;
     g.fillRect(0, 0, 256, 256);
-    // the sun — SMALL, round, saturated warm yellow. The old halo (radius
-    // 62, pale cream) bleached half the sky yellow-green whenever you faced
-    // it; the halo is now a tight ring and the disc is gold, not white.
-    const sg = g.createRadialGradient(128, 90, 2, 128, 90, 20);
-    sg.addColorStop(0, 'rgba(255,205,70,0.8)');
-    sg.addColorStop(0.55, 'rgba(255,200,60,0.35)');
-    sg.addColorStop(1, 'rgba(255,200,60,0)');
-    g.fillStyle = sg;
-    g.beginPath();
-    g.arc(128, 90, 20, 0, 7);
-    g.fill();
-    // solid sun disc on top of the glow
-    g.fillStyle = '#ffd23d';
-    g.beginPath();
-    g.arc(128, 90, 9, 0, 7);
-    g.fill();
     // soft clouds
     for (let i = 0; i < 5; i++) {
       const x = Math.random() * 256;
@@ -203,6 +195,29 @@ export class DungeonRenderer {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.colorSpace = THREE.SRGBColorSpace;
     this.valeSkyTex = t;
+    return t;
+  }
+
+  /** The sun as a sprite texture — a small round saturated gold disc with
+   *  a tight halo. The sprite itself always faces the camera, so the disc
+   *  can never foreshorten into an ellipse, and the halo is gold with a
+   *  fast falloff (never white) so it cannot bleach the nearby sky. */
+  private makeSunTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    const halo = g.createRadialGradient(64, 64, 28, 64, 64, 62);
+    halo.addColorStop(0, 'rgba(255,205,70,0.55)');
+    halo.addColorStop(0.5, 'rgba(255,200,60,0.22)');
+    halo.addColorStop(1, 'rgba(255,200,60,0)');
+    g.fillStyle = halo;
+    g.fillRect(0, 0, 128, 128);
+    g.fillStyle = '#ffd23d';
+    g.beginPath();
+    g.arc(64, 64, 30, 0, Math.PI * 2);
+    g.fill();
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
     return t;
   }
 
@@ -319,7 +334,7 @@ export class DungeonRenderer {
     // The Vale sky is UNLIT (MeshBasicMaterial): no light can tint it, so it
     // reads blue from every angle. The dungeon ceiling stays lit stone.
     const ceilMap = d.theme === 'vale' ? this.valeSkyTexture() : this.textures.ceil;
-    if (d.theme === 'vale') ceilMap.repeat.set(1, 1); // one sun, not thirteen
+    if (d.theme === 'vale') ceilMap.repeat.set(1, 1); // one sky, not thirteen — the sun is a sprite, not paint
     else ceilMap.repeat.set(d.size, d.size);
     const ceilMat =
       d.theme === 'vale'
@@ -382,7 +397,7 @@ export class DungeonRenderer {
     tail: THREE.Group;
   } {
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x201c28, roughness: 0.85, metalness: 0.15 });
-    const wingMat = new THREE.MeshStandardMaterial({ color: 0x2e2438, roughness: 0.9, side: THREE.DoubleSide });
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x3a2c4e, roughness: 0.9, side: THREE.DoubleSide });
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffc23d });
 
     const group = new THREE.Group();
@@ -400,39 +415,40 @@ export class DungeonRenderer {
       spike.rotation.z = -0.25;
       bank.add(spike);
     }
-    // Neck + head, reaching up-forward.
+    // Neck + head, reaching up-forward — big enough to read at distance:
+    // a thick neck, a broad skull, long swept-back horns, ember eyes.
     const neck = new THREE.Group();
     neck.position.set(1.0, 0.1, 0);
-    neck.rotation.z = 0.65;
-    const neckSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.17, 0.95, 8), bodyMat);
-    neckSeg.position.y = 0.45;
+    neck.rotation.z = 0.7;
+    const neckSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.22, 0.9, 8), bodyMat);
+    neckSeg.position.y = 0.42;
     neck.add(neckSeg);
     const head = new THREE.Group();
-    head.position.set(0, 0.95, 0);
-    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.26, 0.28), bodyMat);
+    head.position.set(0, 0.9, 0);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.42, 0.45), bodyMat);
     head.add(skull);
-    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.2), bodyMat);
-    snout.position.set(0.38, -0.04, 0);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.22, 0.32), bodyMat);
+    snout.position.set(0.6, -0.06, 0);
     head.add(snout);
     for (const s of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.34, 6), bodyMat);
-      horn.position.set(-0.22, 0.16, s * 0.1);
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.6, 6), bodyMat);
+      horn.position.set(-0.32, 0.26, s * 0.16);
       horn.rotation.z = 1.1; // swept back
       head.add(horn);
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), eyeMat);
-      eye.position.set(0.16, 0.06, s * 0.15);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), eyeMat);
+      eye.position.set(0.26, 0.1, s * 0.24);
       head.add(eye);
     }
     neck.add(head);
     bank.add(neck);
-    // Tail — three tapering segments + a spade, trailing behind.
+    // Tail — short and thick now, so it stops dominating the silhouette.
+    // Two tapering segments + a spade, trailing behind.
     const tail = new THREE.Group();
     tail.position.set(-1.05, 0, 0);
     let tx = 0;
     const segs: Array<[number, number, number]> = [
-      [0.14, 0.1, 0.7],
-      [0.1, 0.07, 0.65],
-      [0.07, 0.04, 0.6],
+      [0.16, 0.12, 0.55],
+      [0.12, 0.08, 0.5],
     ];
     for (const [r1, r2, len] of segs) {
       const seg = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, len, 8), bodyMat);
@@ -441,20 +457,23 @@ export class DungeonRenderer {
       tail.add(seg);
       tx -= len;
     }
-    const spade = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.42, 4), bodyMat);
+    const spade = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 4), bodyMat);
     spade.rotation.z = Math.PI / 2;
     spade.scale.set(1, 1, 0.4);
-    spade.position.set(tx - 0.2, -0.16, 0);
+    spade.position.set(tx - 0.24, -0.14, 0);
     tail.add(spade);
     bank.add(tail);
-    // Wings — bat-wing membranes on shoulder pivots. Shape is drawn in XY
-    // (x = chord, y = span); the mesh rotation lays it flat, span outward.
+    // Wings — bat-wing membranes on shoulder pivots. The wingspan (~9
+    // units) now dominates the silhouette; the old 2.5-unit wings read as
+    // sticks because a flat horizontal membrane is edge-on from below.
+    // Shape is drawn in XY (x = chord, y = span); the mesh rotation lays
+    // it flat, span outward.
     const wingShape = new THREE.Shape();
-    wingShape.moveTo(0.3, 0);
-    wingShape.lineTo(0.75, 2.5); // wingtip
-    wingShape.quadraticCurveTo(0.35, 2.1, 0.0, 1.7); // scalloped trailing edge
-    wingShape.quadraticCurveTo(-0.25, 1.35, -0.55, 0.9);
-    wingShape.quadraticCurveTo(-0.35, 0.45, -0.15, 0);
+    wingShape.moveTo(0.4, 0);
+    wingShape.lineTo(1.05, 4.2); // wingtip
+    wingShape.quadraticCurveTo(0.5, 3.7, 0.0, 3.1); // scalloped trailing edge
+    wingShape.quadraticCurveTo(-0.4, 2.5, -0.85, 1.7);
+    wingShape.quadraticCurveTo(-0.55, 0.8, -0.2, 0);
     wingShape.closePath();
     const wingGeo = new THREE.ShapeGeometry(wingShape, 8);
     const mkWing = (side: 1 | -1): THREE.Group => {
@@ -464,10 +483,10 @@ export class DungeonRenderer {
       membrane.rotation.x = side > 0 ? Math.PI / 2 : -Math.PI / 2;
       pivot.add(membrane);
       // Leading-edge spar — the bone line that reads at distance.
-      const spar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 2.54, 6), bodyMat);
-      const sparDir = new THREE.Vector3(0.45, 0, side * 2.5).normalize();
+      const spar = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 4.3, 6), bodyMat);
+      const sparDir = new THREE.Vector3(0.65, 0, side * 4.2).normalize();
       spar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), sparDir);
-      spar.position.set(0.52, 0, side * 1.25);
+      spar.position.set(0.72, 0, side * 2.1);
       pivot.add(spar);
       return pivot;
     };
@@ -477,18 +496,20 @@ export class DungeonRenderer {
     return { group, bank, wingL, wingR, neck, tail };
   }
 
-  /** Soft dark ellipse — the dragon's shadow sliding over the gold grass. */
+  /** Soft dark ellipse — the dragon's shadow sliding over the gold grass.
+   *  Square canvas so the radial gradient is fully inside it (the old
+   *  128x64 canvas clipped the circle top and bottom, leaving hard edges). */
   private makeDragonShadowTexture(): THREE.CanvasTexture {
     const c = document.createElement('canvas');
     c.width = 128;
-    c.height = 64;
+    c.height = 128;
     const g = c.getContext('2d')!;
-    const grad = g.createRadialGradient(64, 32, 4, 64, 32, 60);
-    grad.addColorStop(0, 'rgba(0,0,0,0.55)');
-    grad.addColorStop(0.6, 'rgba(0,0,0,0.28)');
+    const grad = g.createRadialGradient(64, 64, 4, 64, 64, 60);
+    grad.addColorStop(0, 'rgba(0,0,0,0.65)');
+    grad.addColorStop(0.6, 'rgba(0,0,0,0.35)');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = grad;
-    g.fillRect(0, 0, 128, 64);
+    g.fillRect(0, 0, 128, 128);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     return t;
@@ -596,6 +617,25 @@ export class DungeonRenderer {
     arch.position.set(d.exit.x * CELL, 1.5, d.exit.y * CELL - 0.5);
     group.add(arch);
 
+    // The sun — a camera-facing sprite riding the northern sky at a fixed
+    // offset from the camera (a far sun never moves), so it is always a
+    // round disc, always the same size, and never hidden behind ruin walls.
+    // depthTest false: the sun is sky — it draws over the ceiling plane
+    // (which would otherwise occlude anything above y=4) and always sits
+    // above the wall tops on screen. fog false: fog would pale it.
+    const sun = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: this.makeSunTexture(),
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        fog: false,
+      })
+    );
+    sun.scale.set(6, 6, 1);
+    sun.renderOrder = 10;
+    group.add(sun);
+
     // The dragon that never lands — a dark silhouette circling high over
     // the valley, banking on slow wings. It never comes down: in the dream
     // the sky has no ground for it. Its shadow slides over the gold grass
@@ -603,11 +643,11 @@ export class DungeonRenderer {
     const dragon = this.makeDragon();
     group.add(dragon.group);
     const shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(7, 4.5),
+      new THREE.PlaneGeometry(10, 6.5),
       new THREE.MeshBasicMaterial({
         map: this.makeDragonShadowTexture(),
         transparent: true,
-        opacity: 0.45,
+        opacity: 0.6,
         depthWrite: false,
       })
     );
@@ -622,13 +662,14 @@ export class DungeonRenderer {
       petals,
       streamMat,
       phase: Math.random() * 10,
+      sun,
       dragon: {
         ...dragon,
         shadow,
         angle: Math.random() * Math.PI * 2,
         cx: ((d.size - 1) / 2) * CELL,
         cz: ((d.size - 1) / 2) * CELL,
-        radius: 16, // stays two cells inside the valley walls
+        radius: 12, // tighter circle — crosses the open central grass, stays clear of the ruin cluster
       },
     };
   }
@@ -1284,28 +1325,48 @@ export class DungeonRenderer {
     if (this.vale) {
       const V = this.vale;
       V.phase += dt;
-      V.streamMat.opacity = 0.5 + Math.sin(V.phase * 1.4) * 0.12;
+      // Stream shimmer — must stay near-opaque (0.82–0.98): the old shimmer
+      // swung 0.38–0.62 and undid the 0.9 opacity fix every frame, which is
+      // why the water kept reading murky grey-green.
+      V.streamMat.opacity = 0.9 + Math.sin(V.phase * 1.4) * 0.08;
       for (const p of V.petals) {
         p.group.rotation.y += dt * 0.4;
         p.group.position.y = Math.sin(V.phase * 1.8 + p.group.position.x) * 0.05;
         p.light.intensity = 14 + Math.sin(V.phase * 2.2) * 2;
       }
+      // The sun rides the northern sky at a fixed offset from the camera —
+      // a far sun never moves, and it is never occluded by ruin walls.
+      // ~13° elevation, ~9° across: a small round disc in the upper sky.
+      V.sun.position.set(
+        this.camera.position.x,
+        this.camera.position.y + 9,
+        this.camera.position.z - 38
+      );
       const D = V.dragon;
       D.angle += dt * ((Math.PI * 2) / 55);
       const dx = D.cx + D.radius * Math.cos(D.angle);
       const dz = D.cz + D.radius * Math.sin(D.angle);
-      // High but under the sky ceiling (y=4): wingtips never poke through it.
-      const dy = 2.5 + 0.2 * Math.sin(D.angle * 2 + 1.3);
+      // High in the sky — body ~1.3 above eye level, head and wingtips
+      // budgeted to stay under the y=4 ceiling (see the node check).
+      const dy = 3.0 + 0.1 * Math.sin(D.angle * 2 + 1.3);
       D.group.position.set(dx, dy, dz);
       // Face the flight tangent: velocity (-sin, cos) in (x, z).
       D.group.rotation.y = Math.atan2(-Math.cos(D.angle), -Math.sin(D.angle));
-      // The circle's center sits on the dragon's right — it banks right.
-      D.bank.rotation.x = 0.3;
-      // Slow flap bursts, long glides: flap when the sine is up, flat when down.
-      const env = Math.pow(Math.max(0, Math.sin(V.phase * 1.1)), 1.5);
-      const flap = 0.06 + 0.42 * env;
-      D.wingR.rotation.x = -flap;
-      D.wingL.rotation.x = flap;
+      // The circle's center sits on the dragon's right — it banks right,
+      // hard: a 9-unit wingspan rolled 0.5 rad drops one tip ~2 units
+      // below the other. Unmistakable at distance.
+      D.bank.rotation.x = 0.5;
+      // Wingbeats: bursts of fast flaps (~0.9 Hz) with long glides
+      // between. The old envelope flapped once per ~6s — it read as static.
+      const burst = Math.pow(Math.max(0, Math.sin(V.phase * 0.55)), 2);
+      const beat = 0.5 + 0.5 * Math.sin(V.phase * 5.5);
+      const flap = 0.06 + 0.38 * burst * beat;
+      // Wings hold a dihedral (tips drooped ~0.4 rad) so the broad membrane
+      // faces the ground — flat wings read edge-on as sticks from below.
+      // The flap lifts the tips from the droop; at full beat they rise
+      // just past level, never above the ceiling.
+      D.wingR.rotation.x = 0.4 - flap;
+      D.wingL.rotation.x = -0.4 + flap;
       D.neck.rotation.y = 0.1 * Math.sin(V.phase * 0.6);
       D.tail.rotation.y = 0.12 * Math.sin(V.phase * 0.6 - 1.2);
       // Its shadow slides over the gold grass below, long axis along the heading.
