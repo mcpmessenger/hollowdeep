@@ -193,6 +193,8 @@ export class Game {
   private valePrompted = new Set<ValeSpot['kind']>(); // petals already hinted, this visit
   private valeCompleted = false; // all three petals, this run — fissure seals
   private valeExitTier = 0; // fissure proximity hints, per visit
+  private valeCryIn = 0; // seconds until the dragon cries again, this visit
+  private valeCryHeard = false; // log the cry once, first time per visit
   private fissureHinted = false; // per level
   // Vess's echo, spoken aloud — press V in her study to talk. Mic in via
   // Web Speech, replies out via speechSynthesis, brain in /api/vess.
@@ -1025,6 +1027,9 @@ export class Game {
     this.valeDrift = VALE_DRIFT_SECONDS;
     this.valeDriftShown = -1;
     this.valeExitTier = 0;
+    // The dragon is already circling overhead; its first cry comes 18–33s in.
+    this.valeCryIn = 18 + Math.random() * 15;
+    this.valeCryHeard = false;
     this.px = this.d.start.x;
     this.py = this.d.start.y;
     this.dir = 0; // face north, up the valley toward the ridge
@@ -1173,6 +1178,16 @@ export class Game {
       if (whole !== this.valeDriftShown) {
         this.valeDriftShown = whole;
         this.hud.setVale(this.valeStatus(), this.valeDrift <= 30);
+      }
+      // The dragon that never lands — a distant cry, rare, across the valley.
+      this.valeCryIn -= dt;
+      if (this.valeCryIn <= 0) {
+        this.valeCryIn = 28 + Math.random() * 22; // every ~30–50s
+        this.audio.dragonCry();
+        if (!this.valeCryHeard) {
+          this.valeCryHeard = true;
+          this.hud.log('Far above, something vast cries out — and keeps circling.');
+        }
       }
       if (this.valeDrift <= 0) {
         this.returnToStudy(true);

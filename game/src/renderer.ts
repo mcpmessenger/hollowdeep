@@ -57,6 +57,20 @@ export class DungeonRenderer {
     petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight; beam: THREE.Mesh }>;
     streamMat: THREE.MeshBasicMaterial;
     phase: number;
+    /** The dragon that never lands — slow wide circle over the valley. */
+    dragon: {
+      group: THREE.Group;
+      bank: THREE.Group;
+      wingL: THREE.Group;
+      wingR: THREE.Group;
+      neck: THREE.Group;
+      tail: THREE.Group;
+      shadow: THREE.Mesh;
+      angle: number;
+      cx: number;
+      cz: number;
+      radius: number;
+    };
   } | null = null;
   private theme: 'dungeon' | 'vale' = 'dungeon';
   private smokeTex: THREE.CanvasTexture | null = null;
@@ -355,6 +369,131 @@ export class DungeonRenderer {
     else this.teardownLair();
   }
 
+  /** The dragon that never lands — dark silhouette, wings, long tail, horns,
+   *  ember eyes. Built facing +X; the group yaws to the flight tangent and
+   *  the bank group rolls it into the turn. Wings pivot at the shoulders so
+   *  they can flap; neck and tail sway on their own phase. */
+  private makeDragon(): {
+    group: THREE.Group;
+    bank: THREE.Group;
+    wingL: THREE.Group;
+    wingR: THREE.Group;
+    neck: THREE.Group;
+    tail: THREE.Group;
+  } {
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x201c28, roughness: 0.85, metalness: 0.15 });
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x2e2438, roughness: 0.9, side: THREE.DoubleSide });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffc23d });
+
+    const group = new THREE.Group();
+    const bank = new THREE.Group();
+    group.add(bank);
+
+    // Body — long ellipsoid, nose +X.
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 12), bodyMat);
+    body.scale.set(2.2, 0.85, 0.85);
+    bank.add(body);
+    // Spine spikes.
+    for (let i = 0; i < 4; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.32, 6), bodyMat);
+      spike.position.set(0.7 - i * 0.45, 0.55, 0);
+      spike.rotation.z = -0.25;
+      bank.add(spike);
+    }
+    // Neck + head, reaching up-forward.
+    const neck = new THREE.Group();
+    neck.position.set(1.0, 0.1, 0);
+    neck.rotation.z = 0.65;
+    const neckSeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.17, 0.95, 8), bodyMat);
+    neckSeg.position.y = 0.45;
+    neck.add(neckSeg);
+    const head = new THREE.Group();
+    head.position.set(0, 0.95, 0);
+    const skull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.26, 0.28), bodyMat);
+    head.add(skull);
+    const snout = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.14, 0.2), bodyMat);
+    snout.position.set(0.38, -0.04, 0);
+    head.add(snout);
+    for (const s of [-1, 1]) {
+      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.34, 6), bodyMat);
+      horn.position.set(-0.22, 0.16, s * 0.1);
+      horn.rotation.z = 1.1; // swept back
+      head.add(horn);
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), eyeMat);
+      eye.position.set(0.16, 0.06, s * 0.15);
+      head.add(eye);
+    }
+    neck.add(head);
+    bank.add(neck);
+    // Tail — three tapering segments + a spade, trailing behind.
+    const tail = new THREE.Group();
+    tail.position.set(-1.05, 0, 0);
+    let tx = 0;
+    const segs: Array<[number, number, number]> = [
+      [0.14, 0.1, 0.7],
+      [0.1, 0.07, 0.65],
+      [0.07, 0.04, 0.6],
+    ];
+    for (const [r1, r2, len] of segs) {
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, len, 8), bodyMat);
+      seg.rotation.z = Math.PI / 2; // lie along X
+      seg.position.set(tx - len / 2, -0.04 * (tx + 1), 0);
+      tail.add(seg);
+      tx -= len;
+    }
+    const spade = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.42, 4), bodyMat);
+    spade.rotation.z = Math.PI / 2;
+    spade.scale.set(1, 1, 0.4);
+    spade.position.set(tx - 0.2, -0.16, 0);
+    tail.add(spade);
+    bank.add(tail);
+    // Wings — bat-wing membranes on shoulder pivots. Shape is drawn in XY
+    // (x = chord, y = span); the mesh rotation lays it flat, span outward.
+    const wingShape = new THREE.Shape();
+    wingShape.moveTo(0.3, 0);
+    wingShape.lineTo(0.75, 2.5); // wingtip
+    wingShape.quadraticCurveTo(0.35, 2.1, 0.0, 1.7); // scalloped trailing edge
+    wingShape.quadraticCurveTo(-0.25, 1.35, -0.55, 0.9);
+    wingShape.quadraticCurveTo(-0.35, 0.45, -0.15, 0);
+    wingShape.closePath();
+    const wingGeo = new THREE.ShapeGeometry(wingShape, 8);
+    const mkWing = (side: 1 | -1): THREE.Group => {
+      const pivot = new THREE.Group();
+      pivot.position.set(0.25, 0.35, side * 0.35);
+      const membrane = new THREE.Mesh(wingGeo, wingMat);
+      membrane.rotation.x = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+      pivot.add(membrane);
+      // Leading-edge spar — the bone line that reads at distance.
+      const spar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 2.54, 6), bodyMat);
+      const sparDir = new THREE.Vector3(0.45, 0, side * 2.5).normalize();
+      spar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), sparDir);
+      spar.position.set(0.52, 0, side * 1.25);
+      pivot.add(spar);
+      return pivot;
+    };
+    const wingR = mkWing(1);
+    const wingL = mkWing(-1);
+    bank.add(wingR, wingL);
+    return { group, bank, wingL, wingR, neck, tail };
+  }
+
+  /** Soft dark ellipse — the dragon's shadow sliding over the gold grass. */
+  private makeDragonShadowTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 64;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(64, 32, 4, 64, 32, 60);
+    grad.addColorStop(0, 'rgba(0,0,0,0.55)');
+    grad.addColorStop(0.6, 'rgba(0,0,0,0.28)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 64);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
   /** The Vale of First Light: stream, sunpetals, fissure arch, golden way back. */
   private buildVale(d: Dungeon) {
     const group = new THREE.Group();
@@ -457,8 +596,41 @@ export class DungeonRenderer {
     arch.position.set(d.exit.x * CELL, 1.5, d.exit.y * CELL - 0.5);
     group.add(arch);
 
+    // The dragon that never lands — a dark silhouette circling high over
+    // the valley, banking on slow wings. It never comes down: in the dream
+    // the sky has no ground for it. Its shadow slides over the gold grass
+    // below, so you feel how high it is.
+    const dragon = this.makeDragon();
+    group.add(dragon.group);
+    const shadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(7, 4.5),
+      new THREE.MeshBasicMaterial({
+        map: this.makeDragonShadowTexture(),
+        transparent: true,
+        opacity: 0.45,
+        depthWrite: false,
+      })
+    );
+    shadow.rotation.set(-Math.PI / 2, 0, 0);
+    shadow.position.y = 0.06; // above the floor and the stream
+    shadow.renderOrder = 2;
+    group.add(shadow);
+
     this.scene.add(group);
-    this.vale = { group, petals, streamMat, phase: Math.random() * 10 };
+    this.vale = {
+      group,
+      petals,
+      streamMat,
+      phase: Math.random() * 10,
+      dragon: {
+        ...dragon,
+        shadow,
+        angle: Math.random() * Math.PI * 2,
+        cx: ((d.size - 1) / 2) * CELL,
+        cz: ((d.size - 1) / 2) * CELL,
+        radius: 16, // stays two cells inside the valley walls
+      },
+    };
   }
 
   /** Tear down the previous Vale build (entry/exit, petals, stream). */
@@ -1106,7 +1278,9 @@ export class DungeonRenderer {
     const f = Math.sin(this.flicker * 11) * 0.5 + Math.sin(this.flicker * 23 + 1.7) * 0.3;
     this.torch.intensity = this.theme === 'vale' ? 5 : 30 + f * 5;
     if (this.exitMarker) this.exitMarker.rotation.y += dt * 0.6;
-    // The Vale: stream shimmer, sunpetals turning in the light.
+    // The Vale: stream shimmer, sunpetals turning in the light, and the
+    // dragon that never lands — one slow circle per ~55s, banking into the
+    // turn, wings flapping in bursts with long glides between.
     if (this.vale) {
       const V = this.vale;
       V.phase += dt;
@@ -1116,6 +1290,27 @@ export class DungeonRenderer {
         p.group.position.y = Math.sin(V.phase * 1.8 + p.group.position.x) * 0.05;
         p.light.intensity = 14 + Math.sin(V.phase * 2.2) * 2;
       }
+      const D = V.dragon;
+      D.angle += dt * ((Math.PI * 2) / 55);
+      const dx = D.cx + D.radius * Math.cos(D.angle);
+      const dz = D.cz + D.radius * Math.sin(D.angle);
+      // High but under the sky ceiling (y=4): wingtips never poke through it.
+      const dy = 2.5 + 0.2 * Math.sin(D.angle * 2 + 1.3);
+      D.group.position.set(dx, dy, dz);
+      // Face the flight tangent: velocity (-sin, cos) in (x, z).
+      D.group.rotation.y = Math.atan2(-Math.cos(D.angle), -Math.sin(D.angle));
+      // The circle's center sits on the dragon's right — it banks right.
+      D.bank.rotation.x = 0.3;
+      // Slow flap bursts, long glides: flap when the sine is up, flat when down.
+      const env = Math.pow(Math.max(0, Math.sin(V.phase * 1.1)), 1.5);
+      const flap = 0.06 + 0.42 * env;
+      D.wingR.rotation.x = -flap;
+      D.wingL.rotation.x = flap;
+      D.neck.rotation.y = 0.1 * Math.sin(V.phase * 0.6);
+      D.tail.rotation.y = 0.12 * Math.sin(V.phase * 0.6 - 1.2);
+      // Its shadow slides over the gold grass below, long axis along the heading.
+      D.shadow.position.set(dx, 0.06, dz);
+      D.shadow.rotation.set(-Math.PI / 2, 0, D.group.rotation.y);
     }
     // The study fire: flicker + dancing flames + rising embers.
     if (this.lair) {

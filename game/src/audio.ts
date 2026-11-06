@@ -503,6 +503,16 @@ export class GameAudio {
     this.birdTimer = null;
   }
 
+  /** Distant dragon cry — a high shriek sliding down, heard across the
+   *  valley. Quiet by design: it is far above you. Mute silences it with
+   *  everything else (master gain). Idempotent per call. */
+  dragonCry() {
+    if (!this.ready) return;
+    this.tone(880, 1.4, 'sawtooth', 0.05, 0, 320);
+    this.tone(1320, 1.1, 'sine', 0.04, 0.1, 440);
+    this.noise(1.6, 2400, 'bandpass', 0.03, 0, 900);
+  }
+
   /** Warm breeze in the Vale — soft filtered noise, slow swell. Idempotent. */
   startBreeze() {
     if (!this.ready || this.breezeNodes) return;
