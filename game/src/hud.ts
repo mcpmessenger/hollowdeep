@@ -20,6 +20,7 @@ export class HUD {
   private dialogueOnChoice: ((id: string) => void) | null = null;
   private muteBtn: HTMLButtonElement;
   private onMuteToggle: (() => void) | null = null;
+  private valeEl: HTMLElement;
 
   constructor() {
     // Directional damage vignette (red edge flash).
@@ -48,6 +49,12 @@ export class HUD {
     this.muteBtn.title = 'Mute (M)';
     this.muteBtn.addEventListener('click', () => this.onMuteToggle && this.onMuteToggle());
     document.body.appendChild(this.muteBtn);
+    // The Vale: dream-drift timer + sunpetal count, top-center, only out there.
+    this.valeEl = document.createElement('div');
+    this.valeEl.style.cssText =
+      'position:fixed;top:52px;left:50%;transform:translateX(-50%);color:#ffd76a;font-size:13px;' +
+      'letter-spacing:2px;z-index:10;opacity:0.95;text-shadow:0 0 8px #000;display:none;';
+    document.body.appendChild(this.valeEl);
     // Vess's journal — collected pages, toggled with J.
     this.journalEl = document.createElement('div');
     this.journalEl.style.cssText =
@@ -204,6 +211,17 @@ export class HUD {
     this.muteBtn.textContent = muted ? '🔇' : '🔊';
   }
 
+  /** Vale status line — drift timer + petals. null hides it (back in the dark). */
+  setVale(text: string | null, danger = false) {
+    if (text === null) {
+      this.valeEl.style.display = 'none';
+      return;
+    }
+    this.valeEl.style.display = 'block';
+    this.valeEl.textContent = text;
+    this.valeEl.style.color = danger ? '#ff6a4a' : '#ffd76a';
+  }
+
   log(msg: string) {
     const div = document.createElement('div');
     div.textContent = msg;
@@ -279,8 +297,23 @@ export class HUD {
       for (let x = 0; x < d.size; x++) {
         if (!seen.has(`${x},${y}`)) continue;
         const v = d.grid[y][x];
-        ctx.fillStyle = v === WALL ? '#3a3226' : v === EXIT ? '#2a5a8a' : '#14100c';
+        if (d.theme === 'vale') {
+          // Bright meadow on the map too: pale ruins, gold grass.
+          ctx.fillStyle = v === WALL ? '#8a8578' : v === EXIT ? '#c8a03a' : '#3a2f14';
+        } else {
+          ctx.fillStyle = v === WALL ? '#3a3226' : v === EXIT ? '#2a5a8a' : '#14100c';
+        }
         ctx.fillRect(x * cell, y * cell, cell, cell);
+      }
+    }
+    // Vale sunpetals — gold dots on visited cells, so the hunt reads on the map.
+    if (d.theme === 'vale') {
+      for (const s of d.valeSpots ?? []) {
+        if (s.taken || !seen.has(`${s.x},${s.y}`)) continue;
+        ctx.fillStyle = '#ffd76a';
+        ctx.beginPath();
+        ctx.arc((s.x + 0.5) * cell, (s.y + 0.5) * cell, cell * 0.4, 0, 7);
+        ctx.fill();
       }
     }
     // monsters on visited cells — color by kind
@@ -292,7 +325,8 @@ export class HUD {
       ctx.fill();
     }
     // Vess's study — a warm ember dot once you've seen the room's heart.
-    if (seen.has(`${d.lair.cx},${d.lair.cy}`)) {
+    // The Vale has no study, so no ember.
+    if (d.lair && seen.has(`${d.lair.cx},${d.lair.cy}`)) {
       ctx.fillStyle = '#ff9030';
       ctx.fillRect(
         (d.lair.cx + 0.28) * cell,

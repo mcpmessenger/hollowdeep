@@ -479,6 +479,76 @@ export class GameAudio {
     this.clockTimer = window.setTimeout(tick, 400);
   }
 
+  // ---- the Vale of First Light ----
+
+  private birdTimer: number | null = null;
+  private breezeNodes: { src: AudioBufferSourceNode } | null = null;
+
+  /** The same bird, the same note — it has been singing it for fifty years.
+   *  One pure note, always the same pitch, every few seconds. Idempotent. */
+  startValeBirds() {
+    if (!this.ready || this.birdTimer !== null) return;
+    const chirp = () => {
+      if (this.birdTimer === null) return; // stopped mid-flight
+      this.tone(2900, 0.18, 'sine', 0.07);
+      this.tone(2900, 0.12, 'sine', 0.05, 0.22);
+      this.birdTimer = window.setTimeout(chirp, 5000 + Math.random() * 4000);
+    };
+    this.birdTimer = window.setTimeout(chirp, 1500);
+  }
+
+  stopValeBirds() {
+    if (this.birdTimer === null) return;
+    clearTimeout(this.birdTimer);
+    this.birdTimer = null;
+  }
+
+  /** Warm breeze in the Vale — soft filtered noise, slow swell. Idempotent. */
+  startBreeze() {
+    if (!this.ready || this.breezeNodes) return;
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 700;
+    bp.Q.value = 0.6;
+    const g = ctx.createGain();
+    g.gain.value = 0.03;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.11;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 0.015;
+    lfo.connect(lfoGain).connect(g.gain);
+    src.connect(bp).connect(g).connect(this.master!);
+    src.start();
+    lfo.start();
+    this.breezeNodes = { src };
+  }
+
+  stopBreeze() {
+    if (!this.breezeNodes) return;
+    try {
+      this.breezeNodes.src.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.breezeNodes = null;
+  }
+
+  /** Silence the dungeon drone (leaving for the Vale). startAmbient() restarts it. */
+  stopAmbient() {
+    for (const o of this.ambientNodes) {
+      try {
+        o.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+    this.ambientNodes = [];
+  }
+
   stopClock() {
     if (this.clockTimer === null) return;
     clearTimeout(this.clockTimer);

@@ -35,6 +35,17 @@ export interface Lair {
   clock: Cell; // grandfather clock, corner opposite the cauldron
 }
 
+/** One sunpetal spot in the Vale — stream bank, white ruins, or high ridge. */
+export interface ValeSpot {
+  kind: 'stream' | 'ruins' | 'ridge';
+  x: number;
+  y: number;
+  taken: boolean;
+}
+
+/** 'dungeon' = the dark gut; 'vale' = the god's bright dream of the surface. */
+export type Theme = 'dungeon' | 'vale';
+
 export type CellContent = 'gold' | 'trap' | 'lore' | 'bandage' | null;
 
 export interface Dungeon {
@@ -46,12 +57,20 @@ export interface Dungeon {
   contents: Map<string, CellContent>;
   searched: Set<string>;
   level: number;
-  lair: Lair;
+  theme: Theme;
+  /** Vess's study — null in the Vale (no study out there, only the dream). */
+  lair: Lair | null;
   /** lair loot taken this level: 'shelf' (journal), 'table' (tonic), 'cauldron' (brew) */
   lairTaken: Set<string>;
   /** solid masonry — not walkable (the hearth; shelf/table/cauldron are
    *  walk-around-able so the study never feels cramped) */
   blocked: Set<string>;
+  /** Vale-only: sunpetal spots (stream, ruins, ridge). */
+  valeSpots?: ValeSpot[];
+  /** Vale-only: grid row of the stream (visual band, still walkable). */
+  streamRow?: number;
+  /** The fissure in the study is sealed once the sunpetal quest is done. */
+  valeSealed?: boolean;
 }
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -218,7 +237,64 @@ export function generateDungeon(size = 15, level = 1): Dungeon {
   };
   const blocked = new Set<string>([key(hearth.x, hearth.y), key(clock.x, clock.y)]);
 
-  return { size, grid, start, exit, contents, searched: new Set(), level, lair, lairTaken: new Set(), blocked };
+  return { size, grid, start, exit, contents, searched: new Set(), level, theme: 'dungeon', lair, lairTaken: new Set(), blocked, valeSealed: false };
+}
+
+/**
+ * The Vale of First Light — the god's dream of the surface. A bright open
+ * meadow (13x13): gold grass, a stream across the middle, white stone ruins,
+ * a high ridge to the north. Three sunpetal spots (stream bank, ruins, high
+ * ridge); the fissure back to the study is the exit at the south edge.
+ * No monsters, no study, no traps — the only danger is lingering.
+ * Spots/start/exit are fixed layout; ruin walls are placed to never block
+ * them (verified by BFS in the node test harness).
+ */
+export function generateVale(size = 13, level = 1): Dungeon {
+  const grid: number[][] = Array.from({ length: size }, () => Array(size).fill(FLOOR));
+  // Border walls — the dream has edges, even if they're made of light.
+  for (let i = 0; i < size; i++) {
+    grid[0][i] = WALL;
+    grid[size - 1][i] = WALL;
+    grid[i][0] = WALL;
+    grid[i][size - 1] = WALL;
+  }
+  // White stone ruins — broken walls, never on a spot, the start, or the ridge path.
+  const ruins: Cell[] = [
+    { x: 8, y: 3 }, { x: 9, y: 3 }, { x: 10, y: 3 }, { x: 8, y: 4 },
+    { x: 3, y: 9 }, { x: 10, y: 9 }, { x: 2, y: 4 },
+  ];
+  for (const r of ruins) grid[r.y][r.x] = WALL;
+  // Standing stones flanking the high ridge.
+  grid[1][5] = WALL;
+  grid[1][7] = WALL;
+
+  const streamRow = 6;
+  const start: Cell = { x: 6, y: 11 }; // the fissure — also the way back
+  const exit: Cell = { x: 6, y: 11 };
+  grid[exit.y][exit.x] = EXIT;
+
+  const valeSpots: ValeSpot[] = [
+    { kind: 'stream', x: 3, y: 7, taken: false }, // just south of the stream
+    { kind: 'ruins', x: 9, y: 4, taken: false }, // inside the broken walls
+    { kind: 'ridge', x: 6, y: 1, taken: false }, // high ridge, north edge
+  ];
+
+  return {
+    size,
+    grid,
+    start,
+    exit,
+    contents: new Map(),
+    searched: new Set(),
+    level,
+    theme: 'vale',
+    lair: null,
+    lairTaken: new Set(),
+    blocked: new Set(),
+    valeSpots,
+    streamRow,
+    valeSealed: false,
+  };
 }
 
 export function cellKey(x: number, y: number): string {
@@ -232,7 +308,8 @@ export function isWalkable(d: Dungeon, x: number, y: number): boolean {
   return true;
 }
 
-/** True when the cell is inside Vess's study. */
+/** True when the cell is inside Vess's study. The Vale has no study. */
 export function inLair(d: Dungeon, x: number, y: number): boolean {
+  if (!d.lair) return false;
   return x >= d.lair.x0 && x <= d.lair.x1 && y >= d.lair.y0 && y <= d.lair.y1;
 }

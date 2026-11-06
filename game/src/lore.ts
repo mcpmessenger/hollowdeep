@@ -25,3 +25,8 @@ export const JOURNAL: string[] = [
 export function journalPage(depth: number): string {
   return JOURNAL[Math.min(Math.max(depth, 1), JOURNAL.length) - 1];
 }
+
+/** The Vale of First Light — granted with the sunpetal tonic, all three
+ *  petals gathered. Vess found the dream-valley once, through a crack in
+ *  her study floor, and left this page for whoever follows. */
+export const VALE_PAGE = `THE VALE — "I found it once, by accident, through a crack in the study floor. Sunlight. Real sunlight, or the god's memory of it — gold grass, a stream, white ruins, and a clock in my head that finally ran FORWARD. Fifty years of wrong time, and up there it ticked true. The petals grow where the dream is thinnest. Take three and the dream will notice you — it forgets you the way a tide forgets a footprint. Don't linger. The valley is a kindness with a timer on it, and the god dreams in both directions." — V.H.`;

@@ -47,10 +47,158 @@ export class DungeonRenderer {
     clockMinute: THREE.Group;
     clockHour: THREE.Group;
     clockPendulum: THREE.Group;
+    fissureMotes: THREE.Points | null;
+    fissureVel: Float32Array;
     phase: number;
   } | null = null;
+  /** The Vale of First Light — bright dream-valley built per entry, torn down on exit. */
+  private vale: {
+    group: THREE.Group;
+    petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight }>;
+    streamMat: THREE.MeshBasicMaterial;
+    phase: number;
+  } | null = null;
+  private theme: 'dungeon' | 'vale' = 'dungeon';
   private smokeTex: THREE.CanvasTexture | null = null;
   private clockFaceTex: THREE.CanvasTexture | null = null;
+  private petalTex: THREE.CanvasTexture | null = null;
+  private valeWallTex: THREE.CanvasTexture | null = null;
+  private valeFloorTex: THREE.CanvasTexture | null = null;
+  private valeSkyTex: THREE.CanvasTexture | null = null;
+
+  /** Pale limestone blocks — the Vale's white stone ruins. Cached, shared. */
+  private valeWallTexture(): THREE.CanvasTexture {
+    if (this.valeWallTex) return this.valeWallTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#e8e2d0';
+    g.fillRect(0, 0, 256, 256);
+    // block courses
+    g.strokeStyle = 'rgba(120,110,90,0.5)';
+    g.lineWidth = 3;
+    const rows = 4;
+    for (let r = 0; r <= rows; r++) {
+      const y = (r * 256) / rows;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(256, y);
+      g.stroke();
+      const offset = r % 2 === 0 ? 0 : 64;
+      for (let k = 0; k < 2; k++) {
+        const x = offset + k * 128;
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(x, y + 256 / rows);
+        g.stroke();
+      }
+    }
+    // faint grey veins + warm sun-bleach
+    for (let i = 0; i < 24; i++) {
+      g.strokeStyle = 'rgba(140,130,110,0.18)';
+      g.lineWidth = 1;
+      const y = Math.random() * 256;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.bezierCurveTo(85, y + 6, 170, y - 6, 256, y);
+      g.stroke();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    this.valeWallTex = t;
+    return t;
+  }
+
+  /** Gold grass — golden field with blade strokes and tiny wildflowers. */
+  private valeFloorTexture(): THREE.CanvasTexture {
+    if (this.valeFloorTex) return this.valeFloorTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#c9a227';
+    g.fillRect(0, 0, 256, 256);
+    // grass blades — darker and lighter gold strokes
+    for (let i = 0; i < 500; i++) {
+      const x = Math.random() * 256;
+      const y = Math.random() * 256;
+      g.strokeStyle = Math.random() < 0.5 ? 'rgba(140,105,20,0.5)' : 'rgba(230,200,90,0.5)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + (Math.random() - 0.5) * 4, y - 4 - Math.random() * 6);
+      g.stroke();
+    }
+    // wildflowers — white and pale yellow dots
+    for (let i = 0; i < 26; i++) {
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,240,0.9)' : 'rgba(255,230,140,0.9)';
+      g.beginPath();
+      g.arc(Math.random() * 256, Math.random() * 256, 1.6 + Math.random() * 1.6, 0, 7);
+      g.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    this.valeFloorTex = t;
+    return t;
+  }
+
+  /** Sky — blue gradient, one sun, soft clouds. Repeat 1 (set by the caller). */
+  private valeSkyTexture(): THREE.CanvasTexture {
+    if (this.valeSkyTex) return this.valeSkyTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d')!;
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#6fa8dc');
+    grad.addColorStop(0.6, '#a8c8e8');
+    grad.addColorStop(1, '#d8e8f8');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+    // the sun — it never moves, and that is the point
+    const sg = g.createRadialGradient(128, 90, 4, 128, 90, 46);
+    sg.addColorStop(0, 'rgba(255,244,200,1)');
+    sg.addColorStop(0.5, 'rgba(255,230,150,0.85)');
+    sg.addColorStop(1, 'rgba(255,230,150,0)');
+    g.fillStyle = sg;
+    g.beginPath();
+    g.arc(128, 90, 46, 0, 7);
+    g.fill();
+    // soft clouds
+    for (let i = 0; i < 5; i++) {
+      const x = Math.random() * 256;
+      const y = 150 + Math.random() * 90;
+      const cg = g.createRadialGradient(x, y, 2, x, y, 26);
+      cg.addColorStop(0, 'rgba(255,255,255,0.75)');
+      cg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = cg;
+      g.beginPath();
+      g.arc(x, y, 26, 0, 7);
+      g.fill();
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = THREE.SRGBColorSpace;
+    this.valeSkyTex = t;
+    return t;
+  }
+
+  /** Gold petal — teardrop, bright center fading to transparent. */
+  private makePetalTexture(): THREE.CanvasTexture {
+    const c = document.createElement('canvas');
+    c.width = 32;
+    c.height = 64;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(16, 40, 2, 16, 40, 26);
+    grad.addColorStop(0, 'rgba(255,225,120,1)');
+    grad.addColorStop(0.6, 'rgba(255,190,60,0.9)');
+    grad.addColorStop(1, 'rgba(255,170,30,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.ellipse(16, 32, 12, 28, 0, 0, Math.PI * 2);
+    g.fill();
+    return new THREE.CanvasTexture(c);
+  }
 
   /** Screen shake — call on hits/bites. Decays automatically, leaves no drift. */
   addShake(n: number) {
@@ -95,10 +243,21 @@ export class DungeonRenderer {
     }
     this.wallMeshes = [];
     resetTexRegistry();
+    this.theme = d.theme;
+    this.teardownVale();
+
+    // The Vale is bright: blue sky, pale fog, warm sun. The dungeon stays black.
+    if (d.theme === 'vale') {
+      this.scene.background = new THREE.Color(0x9fc8e8);
+      this.scene.fog = new THREE.FogExp2(0xbcd9f0, 0.016);
+    } else {
+      this.scene.background = new THREE.Color(0x000000);
+      this.scene.fog = new THREE.FogExp2(0x000000, 0.055);
+    }
 
     const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
     const wallMat = new THREE.MeshStandardMaterial({
-      map: this.textures.wall,
+      map: d.theme === 'vale' ? this.valeWallTexture() : this.textures.wall,
       roughness: 0.95,
       metalness: 0,
     });
@@ -117,7 +276,10 @@ export class DungeonRenderer {
 
     // Floor + ceiling as single planes.
     const S = d.size * CELL;
-    const floorMat = new THREE.MeshStandardMaterial({ map: this.textures.floor, roughness: 1 });
+    const floorMat = new THREE.MeshStandardMaterial({
+      map: d.theme === 'vale' ? this.valeFloorTexture() : this.textures.floor,
+      roughness: 1,
+    });
     registerTexMat('floor', floorMat);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(S, S), floorMat);
     floor.material.map!.repeat.set(d.size, d.size);
@@ -127,61 +289,207 @@ export class DungeonRenderer {
     this.scene.add(floor);
     this.wallMeshes.push(floor as unknown as THREE.Mesh);
 
-    const ceilMat = new THREE.MeshStandardMaterial({ map: this.textures.ceil, roughness: 1 });
+    const ceilMat = new THREE.MeshStandardMaterial({
+      map: d.theme === 'vale' ? this.valeSkyTexture() : this.textures.ceil,
+      roughness: 1,
+    });
     registerTexMat('ceil', ceilMat);
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(S, S), ceilMat);
-    ceil.material.map!.repeat.set(d.size, d.size);
+    if (d.theme === 'vale') ceil.material.map!.repeat.set(1, 1); // one sun, not thirteen
+    else ceil.material.map!.repeat.set(d.size, d.size);
     ceil.rotation.x = Math.PI / 2;
     ceil.position.set((S - CELL) / 2, WALL_H, (S - CELL) / 2);
     ceil.name = 'ceil';
     this.scene.add(ceil);
     this.wallMeshes.push(ceil as unknown as THREE.Mesh);
 
-    // Exit stairs marker — a shaft of cold light.
-    const exitGeo = new THREE.CylinderGeometry(0.7, 0.7, WALL_H, 12, 1, true);
-    const exitMat = new THREE.MeshBasicMaterial({
-      color: 0x6ab8ff,
+    if (d.theme === 'vale') {
+      // Warm sun overhead — the dungeon's torch is a candle next to it.
+      const sun = new THREE.DirectionalLight(0xffe9b0, 2.2);
+      sun.position.set(S / 2, 20, S / 2 - 10);
+      this.scene.add(sun);
+      this.wallMeshes.push(sun as unknown as THREE.Mesh);
+      const skyFill = new THREE.AmbientLight(0xfff2cc, 1.6);
+      this.scene.add(skyFill);
+      this.wallMeshes.push(skyFill as unknown as THREE.Mesh);
+      this.buildVale(d);
+    } else {
+      // Exit stairs marker — a shaft of cold light.
+      const exitGeo = new THREE.CylinderGeometry(0.7, 0.7, WALL_H, 12, 1, true);
+      const exitMat = new THREE.MeshBasicMaterial({
+        color: 0x6ab8ff,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      this.exitMarker = new THREE.Mesh(exitGeo, exitMat);
+      this.exitMarker.position.set(d.exit.x * CELL, WALL_H / 2, d.exit.y * CELL);
+      this.scene.add(this.exitMarker);
+      this.wallMeshes.push(this.exitMarker);
+
+      // Cold blue glow so the exit reads through fog at distance.
+      const exitLight = new THREE.PointLight(0x6ab8ff, 28, 20, 1.8);
+      exitLight.position.set(d.exit.x * CELL, 2.5, d.exit.y * CELL);
+      this.scene.add(exitLight);
+      this.wallMeshes.push(exitLight as unknown as THREE.Mesh);
+    }
+
+    if (d.lair) this.buildLair(d);
+    else this.teardownLair();
+  }
+
+  /** The Vale of First Light: stream, sunpetals, fissure arch, golden way back. */
+  private buildVale(d: Dungeon) {
+    const group = new THREE.Group();
+    const S = d.size * CELL;
+    const petals: Array<{ kind: string; group: THREE.Group; light: THREE.PointLight }> = [];
+
+    // The stream — a translucent blue band across the middle. Walkable water:
+    // the god's dream doesn't bother with wet feet.
+    const streamMat = new THREE.MeshBasicMaterial({
+      color: 0x3f8fd2,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.6,
+      depthWrite: false,
+    });
+    const stream = new THREE.Mesh(
+      new THREE.PlaneGeometry(S, CELL),
+      streamMat
+    );
+    stream.rotation.x = -Math.PI / 2;
+    stream.position.set((S - CELL) / 2, 0.03, (d.streamRow ?? 6) * CELL);
+    group.add(stream);
+
+    // Sunpetals — golden flowers, one per spot, glowing until picked.
+    if (!this.petalTex) this.petalTex = this.makePetalTexture();
+    for (const spot of d.valeSpots ?? []) {
+      if (spot.taken) continue;
+      const pg = new THREE.Group();
+      const cx = spot.x * CELL;
+      const cz = spot.y * CELL;
+      pg.position.set(cx, 0, cz);
+      const petalMat = new THREE.MeshBasicMaterial({
+        map: this.petalTex,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      for (let i = 0; i < 5; i++) {
+        const petal = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.42), petalMat);
+        const a = (i / 5) * Math.PI * 2;
+        petal.position.set(Math.cos(a) * 0.14, 0.55, Math.sin(a) * 0.14);
+        petal.rotation.set(-0.5, -a + Math.PI / 2, 0);
+        pg.add(petal);
+      }
+      const heart = new THREE.Mesh(
+        new THREE.SphereGeometry(0.09, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0xffe9a0 })
+      );
+      heart.position.y = 0.55;
+      pg.add(heart);
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.03, 0.55, 6),
+        new THREE.MeshStandardMaterial({ color: 0x3a7a2a, roughness: 1 })
+      );
+      stem.position.y = 0.27;
+      pg.add(stem);
+      const light = new THREE.PointLight(0xffd76a, 8, 9, 1.8);
+      light.position.set(cx, 1.2, cz);
+      group.add(light);
+      group.add(pg);
+      petals.push({ kind: spot.kind, group: pg, light });
+    }
+
+    // The fissure back — a shaft of warm gold where the exit would be,
+    // ringed by a white stone arch. Step into the light to go home.
+    const exitGeo = new THREE.CylinderGeometry(0.9, 0.9, WALL_H, 12, 1, true);
+    const exitMat = new THREE.MeshBasicMaterial({
+      color: 0xffd76a,
+      transparent: true,
+      opacity: 0.5,
       side: THREE.DoubleSide,
       depthWrite: false,
     });
     this.exitMarker = new THREE.Mesh(exitGeo, exitMat);
     this.exitMarker.position.set(d.exit.x * CELL, WALL_H / 2, d.exit.y * CELL);
-    this.scene.add(this.exitMarker);
-    this.wallMeshes.push(this.exitMarker);
-
-    // Cold blue glow so the exit reads through fog at distance.
-    const exitLight = new THREE.PointLight(0x6ab8ff, 28, 20, 1.8);
+    group.add(this.exitMarker);
+    const exitLight = new THREE.PointLight(0xffc860, 24, 18, 1.8);
     exitLight.position.set(d.exit.x * CELL, 2.5, d.exit.y * CELL);
-    this.scene.add(exitLight);
-    this.wallMeshes.push(exitLight as unknown as THREE.Mesh);
+    group.add(exitLight);
+    const archMat = new THREE.MeshStandardMaterial({
+      map: this.valeWallTexture(),
+      roughness: 0.95,
+    });
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.32, 10, 20, Math.PI), archMat);
+    arch.position.set(d.exit.x * CELL, 1.5, d.exit.y * CELL - 0.5);
+    group.add(arch);
 
-    this.buildLair(d);
+    this.scene.add(group);
+    this.vale = { group, petals, streamMat, phase: Math.random() * 10 };
+  }
+
+  /** Tear down the previous Vale build (entry/exit, petals, stream). */
+  private teardownVale() {
+    if (!this.vale) return;
+    const sharedMaps = new Set(Object.values(this.textures));
+    if (this.petalTex) sharedMaps.add(this.petalTex);
+    this.scene.remove(this.vale.group);
+    this.vale.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = (mesh as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
+      for (const m of mats) {
+        const withMap = m as THREE.MeshStandardMaterial;
+        if (withMap.map && !sharedMaps.has(withMap.map)) withMap.map.dispose();
+        m.dispose();
+      }
+    });
+    this.vale = null;
+  }
+
+  /** Remove one sunpetal's flower + glow when it is picked. */
+  takePetal(kind: string) {
+    if (!this.vale) return;
+    const p = this.vale.petals.find((e) => e.kind === kind);
+    if (!p) return;
+    this.vale.group.remove(p.group);
+    this.vale.group.remove(p.light);
+    p.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+    });
+    this.vale.petals = this.vale.petals.filter((e) => e !== p);
+  }
+
+  /** Tear down the previous level's study. Shared texture-set maps are NOT
+   *  disposed (they belong to textures.ts); per-level canvas textures are. */
+  private teardownLair() {
+    if (!this.lair) return;
+    const sharedMaps = new Set(Object.values(this.textures));
+    if (this.smokeTex) sharedMaps.add(this.smokeTex);
+    if (this.clockFaceTex) sharedMaps.add(this.clockFaceTex);
+    this.scene.remove(this.lair.group);
+    this.lair.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = (mesh as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+      const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
+      for (const m of mats) {
+        const withMap = m as THREE.MeshStandardMaterial;
+        if (withMap.map && !sharedMaps.has(withMap.map)) withMap.map.dispose();
+        m.dispose();
+      }
+    });
+    this.lair = null;
   }
 
   /** Vess's study: a real chamber — fireplace, bookshelf, alchemy table,
    *  cauldron, and stone arches over every doorway. */
   private buildLair(d: Dungeon) {
-    // Tear down the previous level's study. Shared texture-set maps are NOT
-    // disposed (they belong to textures.ts); per-level canvas textures are.
-    if (this.lair) {
-      const sharedMaps = new Set(Object.values(this.textures));
-      if (this.smokeTex) sharedMaps.add(this.smokeTex);
-      this.scene.remove(this.lair.group);
-      this.lair.group.traverse((o) => {
-        const mesh = o as THREE.Mesh;
-        if (mesh.geometry) mesh.geometry.dispose();
-        const mat = (mesh as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-        const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
-        for (const m of mats) {
-          const withMap = m as THREE.MeshStandardMaterial;
-          if (withMap.map && !sharedMaps.has(withMap.map)) withMap.map.dispose();
-          m.dispose();
-        }
-      });
-      this.lair = null;
-    }
+    this.teardownLair();
+    if (!d.lair) return; // the Vale has no study
 
     const group = new THREE.Group();
     const L = d.lair;
@@ -460,6 +768,63 @@ export class DungeonRenderer {
     clockG.add(clockPendulum);
     group.add(clockG);
 
+    // -- The fissure: a crack in the study floor that breathes warm light.
+    // Press F while standing on it to step into the Vale. Once the sunpetal
+    // quest is done it goes dark — the dream has given all it has.
+    const fissureX = L.cx * CELL;
+    const fissureZ = L.cy * CELL;
+    const sealed = !!d.valeSealed;
+    const crack = new THREE.Mesh(
+      new THREE.CircleGeometry(0.7, 24),
+      new THREE.MeshStandardMaterial({ color: 0x0a0500, roughness: 1 })
+    );
+    crack.rotation.x = -Math.PI / 2;
+    crack.scale.set(1, 1.6, 1);
+    crack.position.set(fissureX, 0.015, fissureZ);
+    group.add(crack);
+    let fissureMotes: THREE.Points | null = null;
+    const fissureVel = new Float32Array(8);
+    if (!sealed) {
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(0.72, 0.05, 8, 28),
+        new THREE.MeshStandardMaterial({
+          color: 0xc8a03a,
+          emissive: 0x8a6a1a,
+          emissiveIntensity: 0.8,
+          roughness: 0.6,
+        })
+      );
+      rim.rotation.x = -Math.PI / 2;
+      rim.scale.set(1, 1.6, 1);
+      rim.position.set(fissureX, 0.03, fissureZ);
+      group.add(rim);
+      const fissureLight = new THREE.PointLight(0xffc860, 7, 8, 1.8);
+      fissureLight.position.set(fissureX, 1.2, fissureZ);
+      group.add(fissureLight);
+      const FMOT = 8;
+      const fpos = new Float32Array(FMOT * 3);
+      for (let i = 0; i < FMOT; i++) {
+        fpos[i * 3] = fissureX + (Math.random() - 0.5) * 0.9;
+        fpos[i * 3 + 1] = 0.1 + Math.random() * 1.2;
+        fpos[i * 3 + 2] = fissureZ + (Math.random() - 0.5) * 0.9;
+        fissureVel[i] = 0.2 + Math.random() * 0.3;
+      }
+      const fgeo = new THREE.BufferGeometry();
+      fgeo.setAttribute('position', new THREE.BufferAttribute(fpos, 3));
+      fissureMotes = new THREE.Points(
+        fgeo,
+        new THREE.PointsMaterial({
+          color: 0xffd76a,
+          size: 0.08,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        })
+      );
+      group.add(fissureMotes);
+    }
+
     // -- Arched doorways: half-torus stone arches + jambs over each opening --
     const GDIR = [
       { x: 0, y: -1 },
@@ -514,6 +879,8 @@ export class DungeonRenderer {
       clockMinute,
       clockHour,
       clockPendulum,
+      fissureMotes,
+      fissureVel,
       phase: Math.random() * 10,
     };
   }
@@ -699,11 +1066,22 @@ export class DungeonRenderer {
   }
 
   update(dt: number) {
-    // Torch flicker.
+    // Torch flicker — in the Vale the sun does the work; the torch is a candle.
     this.flicker += dt;
     const f = Math.sin(this.flicker * 11) * 0.5 + Math.sin(this.flicker * 23 + 1.7) * 0.3;
-    this.torch.intensity = 30 + f * 5;
+    this.torch.intensity = this.theme === 'vale' ? 5 : 30 + f * 5;
     if (this.exitMarker) this.exitMarker.rotation.y += dt * 0.6;
+    // The Vale: stream shimmer, sunpetals turning in the light.
+    if (this.vale) {
+      const V = this.vale;
+      V.phase += dt;
+      V.streamMat.opacity = 0.5 + Math.sin(V.phase * 1.4) * 0.12;
+      for (const p of V.petals) {
+        p.group.rotation.y += dt * 0.4;
+        p.group.position.y = Math.sin(V.phase * 1.8 + p.group.position.x) * 0.05;
+        p.light.intensity = 8 + Math.sin(V.phase * 2.2) * 1.5;
+      }
+    }
     // The study fire: flicker + dancing flames + rising embers.
     if (this.lair) {
       const L = this.lair;
@@ -739,6 +1117,16 @@ export class DungeonRenderer {
       L.clockMinute.rotation.z = back;
       L.clockHour.rotation.z = back / 12;
       L.clockPendulum.rotation.z = Math.sin(L.phase * Math.PI) * 0.28;
+      // Fissure motes: golden dust rising from the crack in the floor.
+      if (L.fissureMotes) {
+        const fp = L.fissureMotes.geometry.getAttribute('position') as THREE.BufferAttribute;
+        for (let i = 0; i < L.fissureVel.length; i++) {
+          let y = fp.getY(i) + L.fissureVel[i] * dt;
+          if (y > 1.6) y = 0.1;
+          fp.setY(i, y);
+        }
+        fp.needsUpdate = true;
+      }
       // Smoke puffs: rise, grow, fade, recycle.
       for (const p of L.smoke) {
         p.life += dt;

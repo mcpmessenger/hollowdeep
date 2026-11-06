@@ -6,11 +6,13 @@ import { DungeonRenderer, CELL } from './renderer';
 import {
   Dungeon,
   generateDungeon,
+  generateVale,
   isWalkable,
   inLair,
   cellKey,
   Cell,
   CellContent,
+  ValeSpot,
   EXIT,
 } from './dungeon';
 import { Monster, MonsterKind, spawnMonsters, spawnChadNear, monsterTick, killMonster, destroyMonsters, animateMonsters } from './monsters';
@@ -38,7 +40,7 @@ import {
 import { HUD, visited, markVisited } from './hud';
 import { GameAudio, VessVoiceKind } from './audio';
 import { initTouchControls, isTouchDevice } from './touch';
-import { journalPage } from './lore';
+import { journalPage, VALE_PAGE } from './lore';
 
 interface Best {
   depth: number;
@@ -103,8 +105,30 @@ const LORE = [
   'Wet footprints lead into the wall and do not come out.',
 ];
 
-/** Every cell of Vess's study — monsters never spawn inside. */
+/** The Vale of First Light — dream-drift lasts one full backwards turn of
+ *  the study clock (120s). Then the dream notices you. */
+const VALE_DRIFT_SECONDS = 120;
+
+/** What each sunpetal says when you pick it. */
+const PETAL_LINES: Record<ValeSpot['kind'], string> = {
+  stream: 'A sunpetal nods by the stream — gold on gold. You take it gently. The water keeps singing the same note.',
+  ruins: 'Between the white stones, a sunpetal grows from a crack in the old world. You take it. The ruins don’t mind.',
+  ridge: 'On the high ridge, the sunpetal faces the wrong way, like all the flowers here. You take it anyway.',
+};
+
+/** Searching the Vale: bright, warm, and wrong in small ways — including the
+ *  one that matters: time runs true here. */
+const VALE_SEARCH_LINES = [
+  'The sun hasn’t moved since you arrived. But the clock in your head — the one that always ran backwards down here — is ticking forward.',
+  'The same bird sings the same note. It has been singing it for fifty years.',
+  'The flowers all face the wrong way. You decide not to think about it.',
+  'Gold grass, warm light, no walls that breathe. It feels like a lie you want to believe.',
+  'Your shadow falls the wrong way. You step out of it.',
+];
+
+/** Every cell of Vess's study — monsters never spawn inside. No study, no cells. */
 function roomCells(d: Dungeon): Cell[] {
+  if (!d.lair) return [];
   const out: Cell[] = [];
   for (let y = d.lair.y0; y <= d.lair.y1; y++)
     for (let x = d.lair.x0; x <= d.lair.x1; x++) out.push({ x, y });
@@ -151,6 +175,23 @@ export class Game {
   private kills = 0; // this run — remembered in localStorage on death
   private journal: string[] = []; // Vess's pages, collected across depths
   private lairGreeted = false; // per level
+  // The Vale of First Light — a bright dream-valley through the study fissure.
+  private inVale = false;
+  private valeSaved: {
+    dungeon: Dungeon;
+    px: number;
+    py: number;
+    dir: number;
+    monsters: Monster[];
+    occupied: Set<string>;
+    exitHintTier: number;
+  } | null = null;
+  private valePetals = new Set<ValeSpot['kind']>(); // this visit's harvest
+  private valeDrift = 0; // seconds left before the dream notices you
+  private valeDriftShown = -1; // last whole second pushed to the HUD
+  private valeCompleted = false; // all three petals, this run — fissure seals
+  private valeExitTier = 0; // fissure proximity hints, per visit
+  private fissureHinted = false; // per level
 
   constructor(container: HTMLElement) {
     this.renderer = new DungeonRenderer(container);
@@ -259,13 +300,27 @@ export class Game {
       setTimeout(() => {
         document.getElementById('title')!.style.display = 'none';
         this.started = true;
-        this.px = this.d.lair.cx;
-        this.py = this.d.lair.cy;
-        this.dir = this.d.lair.fireDir; // face the fireplace straight on
+        this.px = this.d.lair!.cx;
+        this.py = this.d.lair!.cy;
+        this.dir = this.d.lair!.fireDir; // face the fireplace straight on
         markVisited(this.d, this.px, this.py);
         this.renderer.setView(this.px, this.py, this.dir);
         this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
         this.hud.log("Vess's study. Dust, old paper — and a fire that never goes out.");
+      }, 800);
+    }
+    // Test hook: #vale walks straight into the Vale from the study.
+    if (location.hash === '#vale') {
+      setTimeout(() => {
+        document.getElementById('title')!.style.display = 'none';
+        this.started = true;
+        this.px = this.d.lair!.cx;
+        this.py = this.d.lair!.cy;
+        this.dir = this.d.lair!.fireDir;
+        markVisited(this.d, this.px, this.py);
+        this.renderer.setView(this.px, this.py, this.dir);
+        this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
+        this.enterVale();
       }, 800);
     }
 
@@ -286,6 +341,9 @@ export class Game {
 
   private newLevel(d: Dungeon, first = false) {
     this.d = d;
+    // The sunpetal quest is once per run — every deeper study's fissure
+    // stays sealed after it is done.
+    if (this.valeCompleted) d.valeSealed = true;
     this.px = d.start.x;
     this.py = d.start.y;
     // Spawn safety: face the first open direction (prefer east), never a wall.
@@ -301,6 +359,7 @@ export class Game {
     this.tween = null;
     this.exitHintTier = 0;
     this.lairGreeted = false;
+    this.fissureHinted = false;
     this.audio.stopFire();
     this.audio.stopClock(); // proximity check restarts them if the study is near
     // Grace period: the labyrinth hasn't noticed you yet (~3s).
@@ -369,7 +428,23 @@ export class Game {
       this.lairGreeted = true;
       this.hud.log("Vess's study. Dust, old paper — and a fire that never goes out.");
     }
+    // The fissure hums underfoot — warm light from a crack in the floor.
+    if (this.d.lair && nx === this.d.lair.cx && ny === this.d.lair.cy && !this.fissureHinted) {
+      this.fissureHinted = true;
+      if (this.d.valeSealed) {
+        this.hud.log('The fissure is dark now. The Vale has given all it has.');
+      } else {
+        this.hud.log('A fissure in the floor breathes warm light. Press F to step through.');
+      }
+    }
     if (this.d.grid[ny][nx] === EXIT) {
+      if (this.inVale) {
+        // The golden shaft is the way back — no descent, just home.
+        setTimeout(() => {
+          if (!this.over) this.returnToStudy(false);
+        }, 350);
+        return;
+      }
       setTimeout(() => {
         if (!this.over) {
           this.audio.descend();
@@ -385,6 +460,17 @@ export class Game {
     const dist =
       Math.abs(this.px - this.d.exit.x) + Math.abs(this.py - this.d.exit.y);
     if (dist === 0) return; // standing in it — descending anyway
+    if (this.inVale) {
+      // The way back is warm light, not cold blue.
+      if (dist <= 4 && this.valeExitTier < 2) {
+        this.valeExitTier = 2;
+        this.hud.log('The fissure waits — warm light, and the way back.');
+      } else if (dist <= 8 && this.valeExitTier < 1) {
+        this.valeExitTier = 1;
+        this.hud.log('Somewhere behind you, the fissure breathes warm air.');
+      }
+      return;
+    }
     if (dist <= 4 && this.exitHintTier < 2) {
       this.exitHintTier = 2;
       this.hud.log('Cold blue light bleeds through the cracks. Close now.');
@@ -674,6 +760,20 @@ export class Game {
 
   private search() {
     if (this.over) return;
+    // Out in the Vale, searching gathers sunpetals.
+    if (this.inVale) {
+      this.searchVale();
+      return;
+    }
+    // Standing on the fissure in the study? Step through — or find it sealed.
+    if (this.d.lair && this.px === this.d.lair.cx && this.py === this.d.lair.cy) {
+      if (this.valeCompleted || this.d.valeSealed) {
+        this.hud.log('The fissure is dark now. The Vale has given all it has.');
+      } else {
+        this.enterVale();
+      }
+      return;
+    }
     // Vess's study: the shelf gives her journal page, the table a tonic,
     // the cauldron a brew. Search anywhere in the room.
     if (inLair(this.d, this.px, this.py)) {
@@ -751,6 +851,133 @@ export class Game {
     }
   }
 
+  /** HUD line for the Vale: drift timer (time runs true here) + petal count. */
+  private valeStatus(): string {
+    const left = Math.max(0, Math.ceil(this.valeDrift));
+    const mm = Math.floor(left / 60);
+    const ss = String(left % 60).padStart(2, '0');
+    return `☀ TIME RUNS TRUE · ${mm}:${ss} · ❀ ${this.valePetals.size}/3`;
+  }
+
+  /** Step through the fissure into the Vale of First Light. The dungeon waits
+   *  exactly as you left it — monsters, loot, and all. */
+  private enterVale() {
+    if (this.inVale || this.valeCompleted) return;
+    this.valeSaved = {
+      dungeon: this.d,
+      px: this.px,
+      py: this.py,
+      dir: this.dir,
+      monsters: this.monsters,
+      occupied: this.occupied,
+      exitHintTier: this.exitHintTier,
+    };
+    // The dungeon's monsters stay behind — their sprites leave the scene,
+    // the objects (and their state) come back with you.
+    for (const m of this.monsters) this.renderer.scene.remove(m.sprite);
+    this.audio.stopFire();
+    this.audio.stopClock();
+    this.audio.stopAmbient();
+    this.audio.startBreeze();
+    this.audio.startValeBirds();
+    this.d = generateVale(13, this.valeSaved.dungeon.level);
+    this.inVale = true;
+    this.valePetals = new Set();
+    this.valeDrift = VALE_DRIFT_SECONDS;
+    this.valeDriftShown = -1;
+    this.valeExitTier = 0;
+    this.px = this.d.start.x;
+    this.py = this.d.start.y;
+    this.dir = 0; // face north, up the valley toward the ridge
+    this.tween = null;
+    this.renderer.build(this.d);
+    markVisited(this.d, this.px, this.py);
+    this.renderer.setView(this.px, this.py, this.dir);
+    this.hud.drawMinimap(this.d, this.px, this.py, this.dir, []);
+    this.hud.setVale(this.valeStatus());
+    this.hud.flash('THE VALE OF FIRST LIGHT', 3000);
+    this.hud.log('Warm light. Gold grass. The ticking in your ears turns around — for the first time in fifty years, time runs forward.');
+    this.hud.log('Three sunpetals grow here: one by the stream, one in the ruins, one on the high ridge. Gather them before the dream notices you.');
+  }
+
+  /** Leave the Vale — through the golden shaft, or waking when the drift ends.
+   *  Petals gathered this visit are lost either way unless all three are in. */
+  private returnToStudy(woke: boolean) {
+    const saved = this.valeSaved;
+    if (!saved || !this.inVale) return;
+    this.audio.stopValeBirds();
+    this.audio.stopBreeze();
+    this.audio.startAmbient();
+    this.inVale = false;
+    this.valeSaved = null;
+    this.valePetals = new Set();
+    this.valeDrift = 0;
+    this.hud.setVale(null);
+    this.d = saved.dungeon;
+    this.px = saved.px;
+    this.py = saved.py;
+    this.dir = saved.dir;
+    this.monsters = saved.monsters;
+    this.occupied = saved.occupied;
+    this.exitHintTier = saved.exitHintTier;
+    this.tween = null;
+    this.renderer.build(this.d);
+    for (const m of this.monsters) {
+      if (!m.gone) this.renderer.scene.add(m.sprite);
+    }
+    markVisited(this.d, this.px, this.py);
+    this.renderer.setView(this.px, this.py, this.dir);
+    this.hud.drawMinimap(this.d, this.px, this.py, this.dir, this.monsters);
+    if (woke) {
+      this.hud.flash('THE DREAM LETS GO', 3000);
+      this.hud.log('The valley forgets you. You wake in the study — the sunpetals gone, ash on your tongue.');
+    } else {
+      this.hud.log('You step back through the fissure. The dark takes you back, and the fire is still lit.');
+    }
+  }
+
+  /** Searching in the Vale: pick sunpetals, or read the dream. */
+  private searchVale() {
+    this.audio.search();
+    const spot = (this.d.valeSpots ?? []).find(
+      (s) => s.x === this.px && s.y === this.py && !s.taken
+    );
+    if (spot) {
+      spot.taken = true;
+      this.valePetals.add(spot.kind);
+      this.audio.find();
+      this.renderer.takePetal(spot.kind);
+      this.hud.setVale(this.valeStatus(), this.valeDrift <= 30);
+      this.hud.log(PETAL_LINES[spot.kind]);
+      if (this.valePetals.size === 3) this.grantSunpetalReward();
+      return;
+    }
+    const k = cellKey(this.px, this.py);
+    if (this.d.searched.has(k)) {
+      this.hud.log('You already searched here. The valley hums the same note.');
+      return;
+    }
+    this.d.searched.add(k);
+    this.hud.log(VALE_SEARCH_LINES[(Math.random() * VALE_SEARCH_LINES.length) | 0]);
+  }
+
+  /** All three sunpetals: a tonic stronger than anything Vess left, a page
+   *  for the journal, and the fissure seals behind you. */
+  private grantSunpetalReward() {
+    this.valeCompleted = true;
+    this.d.valeSealed = true;
+    // The seal belongs to the dungeon you came from, not the Vale itself —
+    // otherwise the fissure would still glow when you step back through.
+    if (this.valeSaved) this.valeSaved.dungeon.valeSealed = true;
+    this.hp = Math.min(this.maxHp, this.hp + 12);
+    this.hud.setHp(this.hp, this.maxHp);
+    this.journal.push(VALE_PAGE);
+    this.audio.find();
+    this.hud.flash('SUNPETAL TONIC', 3000);
+    this.hud.log('Three petals, crushed together — golden light, warm as noon. Sunpetal tonic: +12 HP. Page kept — press J to read.');
+    this.hud.log('The fissure dims behind you. The Vale has given all it has.');
+  }
+
   private checkDeath() {
     if (this.hp <= 0 && !this.over) {
       this.over = true;
@@ -777,6 +1004,20 @@ export class Game {
   }
 
   private update(dt: number) {
+    // Dream-drift: the Vale forgets you a little at a time. Pauses while
+    // the journal or a dialogue is open (update() isn't called then).
+    if (this.inVale && !this.over) {
+      this.valeDrift -= dt;
+      const whole = Math.max(0, Math.ceil(this.valeDrift));
+      if (whole !== this.valeDriftShown) {
+        this.valeDriftShown = whole;
+        this.hud.setVale(this.valeStatus(), this.valeDrift <= 30);
+      }
+      if (this.valeDrift <= 0) {
+        this.returnToStudy(true);
+        return;
+      }
+    }
     // Tween movement / turning.
     if (this.tween) {
       const tw = this.tween;
@@ -819,15 +1060,17 @@ export class Game {
     this.tickTimer += dt;
     if (this.tickTimer > 0.55) {
       this.tickTimer = 0;
-      // Fireplace crackle when near the study.
-      const lairDist =
-        Math.abs(this.px - this.d.lair.cx) + Math.abs(this.py - this.d.lair.cy);
-      if (lairDist <= 8) {
-        this.audio.startFire();
-        this.audio.startClock();
-      } else {
-        this.audio.stopFire();
-        this.audio.stopClock();
+      // Fireplace crackle when near the study. The Vale has no study.
+      if (this.d.lair) {
+        const lairDist =
+          Math.abs(this.px - this.d.lair.cx) + Math.abs(this.py - this.d.lair.cy);
+        if (lairDist <= 8) {
+          this.audio.startFire();
+          this.audio.startClock();
+        } else {
+          this.audio.stopFire();
+          this.audio.stopClock();
+        }
       }
       const graced = performance.now() < this.graceUntil;
       for (const m of this.monsters) {

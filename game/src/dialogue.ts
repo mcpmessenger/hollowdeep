@@ -90,6 +90,7 @@ export const VESS_STORY = [
   'The gibberlings were my first naming. Everything down here was unnamed — so I named it all.',
   'On the fourth depth I understood: the gut rearranges because the god dreams. I am its favorite dream.',
   'I stopped writing at nine. Not because I died, love. Because I arrived.',
+  'Once, a crack in this floor opened onto sunlight. Gold grass, a stream — and the clock in my head ticking forward for the first time in years. If the fissure still hums, go. Gather the sunpetals. But do not linger. The valley forgets you the way a tide forgets a footprint.',
 ];
 
 export const VESS_ADVICE_LOWHP =
