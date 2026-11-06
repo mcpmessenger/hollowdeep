@@ -873,8 +873,11 @@ export class Game {
       exitHintTier: this.exitHintTier,
     };
     // The dungeon's monsters stay behind — their sprites leave the scene,
-    // the objects (and their state) come back with you.
+    // the objects (and their state) come back with you. While you're gone
+    // the Vale is empty: no ticks, no occupied cells, nothing to attack.
     for (const m of this.monsters) this.renderer.scene.remove(m.sprite);
+    this.monsters = [];
+    this.occupied = new Set();
     this.audio.stopFire();
     this.audio.stopClock();
     this.audio.stopAmbient();
