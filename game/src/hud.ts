@@ -26,6 +26,10 @@ export class HUD {
   private voiceOnListen: (() => void) | null = null;
   private voiceOnSubmit: ((text: string) => void) | null = null;
   private voiceOnClose: (() => void) | null = null;
+  // The voice-talk transcript lives here, not in the overlay DOM — the
+  // overlay is rebuilt on every open, so lines kept only in the DOM would
+  // vanish on reopen. Re-rendered into the fresh transcript on open.
+  private voiceLines: Array<{ kind: 'you' | 'vess' | 'note'; text: string; faint?: boolean }> = [];
   private muteBtn: HTMLButtonElement;
   private onMuteToggle: (() => void) | null = null;
   private valeEl: HTMLElement;
@@ -254,6 +258,9 @@ export class HUD {
       'max-height:240px;overflow-y:auto;margin-bottom:16px;padding-right:6px;';
     inner.appendChild(transcript);
     this.voiceTranscript = transcript;
+    // The transcript survives reopening: re-render the stored lines into
+    // the fresh overlay (the DOM itself is rebuilt on every open).
+    for (const line of this.voiceLines) this.renderVoiceLine(line);
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;gap:8px;';
     const input = document.createElement('input');
@@ -293,7 +300,7 @@ export class HUD {
     row.appendChild(closeBtn);
     inner.appendChild(row);
     const hint = document.createElement('div');
-    hint.textContent = 'V / ESC — CLOSE · M — MUTE';
+    hint.textContent = 'ESC — CLOSE · V — CLOSE · M — MUTE (NOT WHILE TYPING)';
     hint.style.cssText =
       'margin-top:20px;text-align:center;font-size:11px;letter-spacing:3px;color:#8a7648;';
     inner.appendChild(hint);
@@ -304,6 +311,8 @@ export class HUD {
   }
 
   hideVoiceTalk() {
+    // Don't leave focus in a hidden box — it would swallow game keys.
+    this.voiceInput?.blur();
     this.voiceEl.style.display = 'none';
     this.voiceOpen = false;
     this.voiceOnListen = null;
@@ -318,12 +327,38 @@ export class HUD {
     if (this.voiceStatus) this.voiceStatus.textContent = text;
   }
 
-  /** One transcript line. faint = the offline echo, not the AI — labelled. */
+  /** One transcript line. faint = the offline echo, not the AI — labelled.
+   *  Lines are stored, not just rendered: the overlay is rebuilt on every
+   *  open, and the transcript must survive reopening. */
   appendVoiceLine(who: 'You' | 'Vess', text: string, faint = false) {
+    const line = { kind: (who === 'You' ? 'you' : 'vess') as 'you' | 'vess', text, faint };
+    this.voiceLines.push(line);
+    this.renderVoiceLine(line);
+  }
+
+  /** A dim system line in the transcript (e.g. the offline-echo notice). */
+  appendVoiceNote(text: string) {
+    const line = { kind: 'note' as const, text };
+    this.voiceLines.push(line);
+    this.renderVoiceLine(line);
+  }
+
+  focusVoiceInput() {
+    this.voiceInput?.focus();
+  }
+
+  private renderVoiceLine(line: { kind: 'you' | 'vess' | 'note'; text: string; faint?: boolean }) {
     if (!this.voiceTranscript) return;
     const div = document.createElement('div');
-    div.textContent = `${who}${faint ? ' (faint echo)' : ''}: ${text}`;
-    div.style.cssText = who === 'Vess' ? 'font-style:italic;margin-bottom:10px;' : 'margin-bottom:10px;opacity:0.85;';
+    if (line.kind === 'note') {
+      div.textContent = line.text;
+      div.style.cssText = 'font-style:italic;color:#8a7648;margin-bottom:10px;';
+    } else {
+      const who = line.kind === 'you' ? 'You' : 'Vess';
+      div.textContent = `${who}${line.faint ? ' (faint echo)' : ''}: ${line.text}`;
+      div.style.cssText =
+        line.kind === 'vess' ? 'font-style:italic;margin-bottom:10px;' : 'margin-bottom:10px;opacity:0.85;';
+    }
     this.voiceTranscript.appendChild(div);
     this.voiceTranscript.scrollTop = this.voiceTranscript.scrollHeight;
   }

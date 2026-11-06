@@ -276,10 +276,11 @@ export class Game {
         this.audio.startBreeze();
         this.audio.startValeBirds();
       }
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
-      if (e.repeat) return;
       // Typing in Vess's voice-talk box: keys belong to the input, not the
-      // dungeon. Escape closes the talk; everything else types.
+      // dungeon. Escape closes the talk; everything else types — Space
+      // included. (The arrows/Space preventDefault below MUST come after
+      // this check: it cancels the default action, which for a focused
+      // input is inserting the character — typing came out spaceless.)
       const ae = document.activeElement;
       if (ae && ae.id === 'vess-voice-input') {
         if (e.key === 'Escape') {
@@ -288,6 +289,12 @@ export class Game {
         }
         return;
       }
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+      // The V that opens voice talk must not leak into the text box: the
+      // keydown's default action (inserting 'v') runs after focus() moves
+      // focus into the input, so only preventDefault stops it.
+      if (e.key.toLowerCase() === 'v') e.preventDefault();
+      if (e.repeat) return;
       // Title up: Enter/Space descends even when the title box isn't focused.
       if (!this.started && (e.key === 'Enter' || e.key === ' ')) {
         dismissTitle();
@@ -572,10 +579,11 @@ export class Game {
 
   private handleKey(k: string) {
     if (!this.started || this.over) return;
-    // Voice talk open: the echo has the floor. V / ESC closes; nothing else
-    // moves the delver while she is speaking.
+    // Voice talk open: the echo has the floor. V / ESC closes, M mutes;
+    // nothing else moves the delver while she is speaking.
     if (this.hud.isVoiceTalkOpen()) {
       if (k === 'v' || k === 'escape') this.closeVoiceTalk();
+      else if (k === 'm') this.toggleMute();
       return;
     }
     // V — speak to Vess's echo (in her study only).
@@ -734,7 +742,8 @@ export class Game {
       this.hud.log('No echo here. Vess answers in her study — the warm room with the fire. (Press V there.)');
       return;
     }
-    this.vessTalkHistory = [];
+    // History is NOT reset here: the transcript now persists across
+    // reopens, and the AI's context must match what the player can see.
     this.hud.showVoiceTalk({
       onListen: () => void this.vessListenTurn(),
       onSubmit: (text) => void this.vessTextTurn(text),
@@ -763,6 +772,7 @@ export class Game {
     const heard = await this.vessVoice.listenOnce();
     this.vessTalkListening = false;
     if (!this.hud.isVoiceTalkOpen()) return;
+    this.hud.focusVoiceInput(); // back to typing after a mic turn
     if (!heard) {
       this.hud.setVoiceStatus('I didn’t catch that — type it below, or tap 🎙 to listen again.');
       return;
@@ -802,10 +812,17 @@ export class Game {
     }
     if (source === 'offline' && !this.vessOfflineNoted) {
       this.vessOfflineNoted = true;
-      this.hud.log('The echo is faint — the deeper voice is quiet. Vess answers from memory until it is set.');
+      // The notice lives in both places: the main log buries single lines
+      // under long wrapped replies (5-line cap), so the transcript gets
+      // its own copy where the conversation actually happens.
+      const note = 'The echo is faint — the deeper voice is quiet. Vess answers from memory until it is set.';
+      this.hud.log(note);
+      this.hud.appendVoiceNote(note);
     }
     this.hud.appendVoiceLine('Vess', reply, source === 'offline');
-    this.hud.log(`Vess: ${reply}`);
+    // The main log carries the label too — it was the only place the
+    // playtest looked, and the plain 'Vess: ...' line hid the source.
+    this.hud.log(source === 'offline' ? `Vess (faint echo): ${reply}` : `Vess: ${reply}`);
     this.vessVoice.speak(reply);
   }
 
